@@ -8,7 +8,6 @@ import {
   LLM_API_KEY_HEADER,
   LLM_BASE_URL_HEADER,
   LLM_MODEL_HEADER,
-  SEARCH_API_KEY_HEADER,
   SETTINGS_STORAGE_KEY,
 } from "@/lib/constants";
 import type {
@@ -29,15 +28,12 @@ interface Settings {
   baseUrl: string;
   model: string;
   apiKey: string;
-  /** Optional Volcengine web-search key; empty disables search grounding. */
-  searchKey: string;
 }
 
 const DEFAULT_SETTINGS: Settings = {
   baseUrl: DEFAULT_LLM_BASE_URL,
   model: DEFAULT_LLM_MODEL,
   apiKey: "",
-  searchKey: "",
 };
 
 /** Empty-state prompt cards, one per headline skill. */
@@ -60,6 +56,10 @@ const SUGGESTIONS: { title: string; example: string }[] = [
   },
 ];
 
+/**
+ * The chat page: settings, conversation sidebar, message log, and composer.
+ * @returns the root page component
+ */
 export default function Home() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -103,6 +103,10 @@ export default function Home() {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [messages]);
 
+  /**
+   * Apply a patch function to the trailing message in the conversation.
+   * @param patch transform applied to the last message
+   */
   const updateLast = useCallback(
     (patch: (message: ChatMessage) => ChatMessage): void => {
       setMessages((prev) => {
@@ -122,7 +126,7 @@ export default function Home() {
     const text = input.trim();
     if (!text || isStreaming) return;
     if (!settings.apiKey) {
-      setError("Add your GLM API key in the settings bar first.");
+      setError("Add your DeepSeek API key in the settings bar first.");
       return;
     }
     setError("");
@@ -141,9 +145,6 @@ export default function Home() {
         [LLM_API_KEY_HEADER]: settings.apiKey,
         [LLM_MODEL_HEADER]: settings.model,
       };
-      if (settings.searchKey) {
-        headers[SEARCH_API_KEY_HEADER] = settings.searchKey;
-      }
       const response = await fetch("/api/chat", {
         method: "POST",
         headers,
@@ -167,9 +168,7 @@ export default function Home() {
    * creating the record on the first save.
    */
   async function persistCurrentExchange(): Promise<void> {
-    const current = messagesRef.current.filter(
-      (message) => message.content || message.report,
-    );
+    const current = messagesRef.current;
     if (current.length < 2) return;
     const id = activeConversationId ?? createConversation().id;
     setActiveConversationId(id);
@@ -374,11 +373,13 @@ export default function Home() {
               <input
                 id="setting-api-key"
                 type="password"
-                placeholder="Your GLM API key"
+                placeholder="Your DeepSeek API key"
                 value={settings.apiKey}
                 onChange={(event) =>
                   setSettings({ ...settings, apiKey: event.target.value })
                 }
+                onCopy={(event) => event.preventDefault()}
+                onCut={(event) => event.preventDefault()}
               />
             </div>
             <div className="field">
@@ -398,20 +399,6 @@ export default function Home() {
                 value={settings.baseUrl}
                 onChange={(event) =>
                   setSettings({ ...settings, baseUrl: event.target.value })
-                }
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="setting-search-key">
-                Web search API key (optional)
-              </label>
-              <input
-                id="setting-search-key"
-                type="password"
-                placeholder="Volcengine search key - enables third-party signals"
-                value={settings.searchKey}
-                onChange={(event) =>
-                  setSettings({ ...settings, searchKey: event.target.value })
                 }
               />
             </div>
@@ -456,11 +443,15 @@ function ProgressPanel({ events }: { events: ProgressEvent[] }): JSX.Element {
   );
 }
 
+interface ReportSectionProps {
+  report: ReportState;
+}
+
 /**
  * Score summary card with Unicode block bars, ported from the CLI design.
  * @param report the structured report payload
  */
-function Scorecard({ report }: { report: ReportState }): JSX.Element {
+function Scorecard({ report }: ReportSectionProps): JSX.Element {
   return (
     <div className="scorecard">
       <div className="scorecard-head">
@@ -501,7 +492,7 @@ function bar(score: number): string {
  * Download buttons for the generated report.
  * @param report the structured report payload
  */
-function ReportActions({ report }: { report: ReportState }): JSX.Element {
+function ReportActions({ report }: ReportSectionProps): JSX.Element {
   /**
    * Download the report markdown as a .md file.
    */

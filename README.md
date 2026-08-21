@@ -2,7 +2,7 @@
 
 A TypeScript rewrite of [`zubair-trabzada/ai-sales-team-claude`](https://github.com/zubair-trabzada/ai-sales-team-claude) as a standalone web app: a chat page where a prospect-analysis request automatically routes into a five-subagent sales pipeline.
 
-Built with Next.js (App Router) + TypeScript, powered by any OpenAI-compatible LLM endpoint (default: GLM at `https://api.z.ai/api/paas/v4`, model `glm-5.2`).
+Built with Next.js (App Router) + TypeScript, powered by any OpenAI-compatible LLM endpoint (default: DeepSeek at `https://api.deepseek.com`, model `deepseek-chat`).
 
 ## How it works
 
@@ -15,12 +15,12 @@ Bring your own key: the API key is stored in `localStorage` in *your* browser on
 
 ### Optional: web search grounding
 
-Add a Volcengine web-search key (联网搜索, `https://open.feedcoopapi.com/search_api/global_search`) in Settings and the app gains two behaviors:
+The backend accepts a Volcengine web-search key (联网搜索, `https://open.feedcoopapi.com/search_api/global_search`) via the `x-search-api-key` header on `/api/chat` and gains two behaviors when present:
 
 - **Name to URL resolution** - "analyze Acme Analytics" (no URL) first searches for the official site, then runs the pipeline on it.
 - **Third-party signals** - prospect audits and the research/qualify skills search the web for funding and news, and the findings cite independent sources alongside the company's own site.
 
-Leave the field empty and everything works as before, grounded only on the prospect's own pages. Search failures never break a run - they degrade silently.
+This is no longer exposed in the Settings UI. Omit the header and everything works as before, grounded only on the prospect's own pages. Search failures never break a run - they degrade silently.
 
 ## Setup
 
@@ -29,7 +29,7 @@ npm install
 npm run dev        # http://localhost:3000
 ```
 
-Open the page, paste your GLM API key into the settings bar (base URL and model are pre-filled), and try:
+Open the page, paste your DeepSeek API key into the settings bar (base URL and model are pre-filled), and try:
 
 ```
 analyze https://stripe.com as a prospect
