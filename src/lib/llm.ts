@@ -42,6 +42,14 @@ export function chatCompletionsUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
 }
 
+/**
+ * Build the JSON request body for a chat-completions call.
+ * @param config endpoint credentials and model
+ * @param messages conversation so far
+ * @param stream whether to request an SSE stream
+ * @param options temperature and JSON-mode flags
+ * @returns the serialized request body
+ */
 function buildBody(
   config: LlmConfig,
   messages: LlmMessage[],
@@ -59,6 +67,11 @@ function buildBody(
   });
 }
 
+/**
+ * Build the request headers for a chat-completions call.
+ * @param config endpoint credentials
+ * @returns headers with content-type and bearer authorization
+ */
 function buildHeaders(config: LlmConfig): HeadersInit {
   return {
     "content-type": "application/json",
@@ -190,4 +203,19 @@ function extractContent(payload: unknown, isChunk = false): string {
   if (typeof holder !== "object" || holder === null) return "";
   const content = (holder as { content?: unknown }).content;
   return typeof content === "string" ? content : "";
+}
+
+/**
+ * Extract the {...} JSON object substring from raw LLM text, stripping any
+ * markdown code fence around it first.
+ * @param raw the model's reply text
+ * @returns the JSON substring, or null when no object span is found
+ */
+export function extractJsonObject(raw: string): string | null {
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const candidate = fenced ? fenced[1] : raw;
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  return candidate.slice(start, end + 1);
 }

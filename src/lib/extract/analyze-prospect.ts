@@ -59,6 +59,10 @@ const PHONE_PATTERN = /(?:\+?\d{1,3}[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}
 const PRICING_HREF_PATTERN = /pricing|plans|packages/i;
 const ENTERPRISE_PATTERN = /enterprise|custom pricing|contact (us|sales) for/i;
 
+const MAX_SOCIAL_PROFILES = 8;
+const MAX_PHONES = 5;
+const MAX_INTERNAL_LINKS = 40;
+
 /**
  * Run all extractions over a fetched homepage.
  * @param html raw homepage HTML
@@ -84,7 +88,7 @@ export function analyzeProspect(
     emails: uniqueMatches(html, EMAIL_PATTERN).filter(
       (email) => !/\.(png|jpe?g|gif|svg|webp)$/i.test(email),
     ),
-    phones: uniqueMatches(html, PHONE_PATTERN).slice(0, 5),
+    phones: uniqueMatches(html, PHONE_PATTERN).slice(0, MAX_PHONES),
     hasPricingPage: findPricingLink($, pageUrl) !== null,
     pricingPageUrl: findPricingLink($, pageUrl),
     enterpriseTierListed: ENTERPRISE_PATTERN.test(html),
@@ -166,7 +170,7 @@ function extractSocials($: cheerio.CheerioAPI): string[] {
       found.add(href.startsWith("http") ? href : `https://${href}`);
     }
   }
-  return [...found].slice(0, 8);
+  return [...found].slice(0, MAX_SOCIAL_PROFILES);
 }
 
 /**
@@ -218,7 +222,7 @@ function extractInternalLinks(
       // Unparseable hrefs are skipped.
     }
   }
-  return [...found].slice(0, 40);
+  return [...found].slice(0, MAX_INTERNAL_LINKS);
 }
 
 /**

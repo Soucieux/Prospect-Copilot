@@ -3,7 +3,7 @@
  * A cheap, temperature-0 LLM call; falls back to plain chat on "none".
  */
 
-import { chatCompletion, type LlmConfig, LlmError } from "@/lib/llm";
+import { chatCompletion, extractJsonObject, type LlmConfig } from "@/lib/llm";
 import { ROUTER_RESULT_SCHEMA, type RouterResult } from "@/lib/agent/schemas";
 import { searchWeb, type SearchConfig } from "@/lib/search/volc-search";
 
@@ -44,12 +44,11 @@ export async function routeMessage(
     ],
     { temperature: 0, jsonMode: true },
   );
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start === -1 || end <= start) return NONE_RESULT;
+  const jsonText = extractJsonObject(raw);
+  if (!jsonText) return NONE_RESULT;
   let routing: RouterResult;
   try {
-    routing = ROUTER_RESULT_SCHEMA.parse(JSON.parse(raw.slice(start, end + 1)));
+    routing = ROUTER_RESULT_SCHEMA.parse(JSON.parse(jsonText));
   } catch {
     return NONE_RESULT;
   }

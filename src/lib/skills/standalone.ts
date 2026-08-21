@@ -19,6 +19,7 @@ import {
   searchCompanySignals,
   type SearchConfig,
 } from "@/lib/search/volc-search";
+import { NOT_PUBLICLY_AVAILABLE } from "@/lib/constants";
 
 export type StandaloneSkillName = "research" | "qualify" | "contacts" | "outreach";
 
@@ -30,9 +31,12 @@ export interface StandaloneSkill {
   systemPrompt: string;
 }
 
+const MAX_CONTACTS_IN_GROUNDING = 10;
+const GROUNDING_HOMEPAGE_CHAR_BUDGET = 6_000;
+
 const EVIDENCE_RULES = `
 Rules:
-- NEVER fabricate names, numbers, or claims. Missing data is "Not publicly available" and lowers any assessment.
+- NEVER fabricate names, numbers, or claims. Missing data is "${NOT_PUBLICLY_AVAILABLE}" and lowers any assessment.
 - Cite the page or signal behind every factual line.
 - Output clean GitHub-flavored markdown with clear section headers. No preamble, no closing chatter.`;
 
@@ -102,7 +106,7 @@ export async function runStandaloneSkill(
 
   let grounding = `Target: ${entity ?? "unknown"}
 No website was provided, so no discovery could run. Mark anything you cannot
-verify as "Not publicly available" rather than guessing.`;
+verify as "${NOT_PUBLICLY_AVAILABLE}" rather than guessing.`;
   let title = entity ?? "prospect";
 
   if (skill.needsDiscovery && url) {
@@ -119,21 +123,21 @@ verify as "Not publicly available" rather than guessing.`;
       );
     }
     grounding = `Discovery briefing for ${page.url}:
-- Company: ${extraction.companyName ?? "Not publicly available"}
+- Company: ${extraction.companyName ?? NOT_PUBLICLY_AVAILABLE}
 - Title/description: ${extraction.title ?? "-"} / ${extraction.description ?? "-"}
 - Tech stack: ${extraction.techStack.join(", ") || "none detected"}
 - Emails: ${extraction.emails.join(", ") || "none found"}
 - Pricing page: ${extraction.pricingPageUrl ?? "none found"}
-- Employees (JSON-LD): ${extraction.jsonLdOrg?.numberOfEmployees ?? "Not publicly available"}
+- Employees (JSON-LD): ${extraction.jsonLdOrg?.numberOfEmployees ?? NOT_PUBLICLY_AVAILABLE}
 - Contacts found: ${contacts.length}
 ${contacts
-  .slice(0, 10)
+  .slice(0, MAX_CONTACTS_IN_GROUNDING)
   .map(
     (contact) =>
       `  - ${contact.name}, ${contact.title ?? "title unknown"} (${contact.seniority}, ${contact.buyingRole})${contact.linkedin ? ` - ${contact.linkedin}` : ""}`,
   )
   .join("\n")}
-- Homepage text: ${htmlToText(page.html).slice(0, 6_000)}
+- Homepage text: ${htmlToText(page.html).slice(0, GROUNDING_HOMEPAGE_CHAR_BUDGET)}
 ${
   bant
     ? `\nDeterministic BANT pre-score (use as a floor, adjust only with cited evidence):\n${bant.dimensions

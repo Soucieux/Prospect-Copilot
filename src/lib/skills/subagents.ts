@@ -8,6 +8,8 @@ import {
   type SubagentResult,
 } from "@/lib/agent/schemas";
 import type { CategoryScores } from "@/lib/scoring/lead-scorer";
+import { extractJsonObject } from "@/lib/llm";
+import { NOT_PUBLICLY_AVAILABLE } from "@/lib/constants";
 
 export interface SubagentDefinition {
   /** Key matching CategoryScores fields. */
@@ -22,7 +24,7 @@ export interface SubagentDefinition {
 
 const NEVER_FABRICATE_RULES = `
 Rules you must follow without exception:
-- NEVER fabricate a name, number, or claim. If data is absent, say "Not publicly available" and score lower.
+- NEVER fabricate a name, number, or claim. If data is absent, say "${NOT_PUBLICLY_AVAILABLE}" and score lower.
 - Every finding must cite its evidence: the page it came from, or the search signal behind it.
 - Tag every finding with confidence: High, Medium, Low, or Inferred.
 - Score honestly. A mediocre prospect gets a mediocre score. No grade inflation.
@@ -141,23 +143,10 @@ ${briefingJson}`;
  * @throws Error when the text is not valid JSON matching the schema
  */
 export function parseSubagentResult(raw: string): SubagentResult {
-  const jsonText = extractJson(raw);
-  const parsed: unknown = JSON.parse(jsonText);
-  return SUBAGENT_RESULT_SCHEMA.parse(parsed);
-}
-
-/**
- * Strip markdown fences or preamble the model may add around JSON.
- * @param raw model output text
- * @returns the JSON substring
- */
-function extractJson(raw: string): string {
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const candidate = fenced ? fenced[1] : raw;
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) {
+  const jsonText = extractJsonObject(raw);
+  if (!jsonText) {
     throw new Error("No JSON object found in subagent response");
   }
-  return candidate.slice(start, end + 1);
+  const parsed: unknown = JSON.parse(jsonText);
+  return SUBAGENT_RESULT_SCHEMA.parse(parsed);
 }

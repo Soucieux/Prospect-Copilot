@@ -73,6 +73,12 @@ function sseFrame(event: ChatEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }
 
+/**
+ * Handle one /api/chat request: route the message to a skill (or plain
+ * chat) and stream progress/tokens/report/error events back as SSE.
+ * @param request the incoming chat request
+ * @returns an SSE stream response
+ */
 export async function POST(request: NextRequest): Promise<Response> {
   const config = readLlmConfig(request);
   if (!config) {

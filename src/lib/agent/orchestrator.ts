@@ -6,6 +6,7 @@
 
 import {
   chatCompletion,
+  extractJsonObject,
   type LlmConfig,
   type LlmMessage,
 } from "@/lib/llm";
@@ -36,6 +37,7 @@ import {
   searchCompanySignals,
   type SearchConfig,
 } from "@/lib/search/volc-search";
+import { NOT_PUBLICLY_AVAILABLE } from "@/lib/constants";
 
 /** Callback used to stream progress events to the client. */
 export type EmitFn = (event: ChatEvent) => void;
@@ -51,6 +53,9 @@ const SUBPAGE_PATTERNS: { name: string; pattern: RegExp }[] = [
 
 const MAX_SUBPAGES = 6;
 const PAGE_TEXT_BUDGET = 3_000;
+const SYNTHESIS_PAGE_LIMIT = 4;
+const SYNTHESIS_BRIEFING_CHAR_BUDGET = 8_000;
+const MAX_CONTACTS_IN_REPORT = 10;
 
 interface BriefingPage {
   name: string;
@@ -357,19 +362,18 @@ SUBAGENT VERDICTS:
 ${agentSummaries}
 
 DISCOVERY BRIEFING (excerpt):
-${JSON.stringify({ ...briefing, pages: briefing.pages.slice(0, 4) }).slice(0, 8_000)}`,
+${JSON.stringify({ ...briefing, pages: briefing.pages.slice(0, SYNTHESIS_PAGE_LIMIT) }).slice(0, SYNTHESIS_BRIEFING_CHAR_BUDGET)}`,
     },
   ];
   const raw = await chatCompletion(config, messages, {
     temperature: 0.3,
     jsonMode: true,
   });
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start === -1 || end <= start) {
+  const jsonText = extractJsonObject(raw);
+  if (!jsonText) {
     throw new Error("Synthesis call returned no JSON object");
   }
-  return SYNTHESIS_SCHEMA.parse(JSON.parse(raw.slice(start, end + 1)));
+  return SYNTHESIS_SCHEMA.parse(JSON.parse(jsonText));
 }
 
 /**
@@ -387,7 +391,7 @@ function buildFallbackSynthesis(
   const topContact = briefing.contacts[0];
   const contactLine = topContact
     ? `${topContact.name}, ${topContact.title ?? "title unknown"}`
-    : "Not publicly available";
+    : NOT_PUBLICLY_AVAILABLE;
   const company = briefing.companyName ?? "this company";
   return {
     executiveSummary: `Prospect Score ${composite.score}/100 (Grade ${composite.grade}, ${composite.confidence} confidence). The synthesis writer could not produce a narrative for this run - see the per-agent findings below for the full evidence behind the score.`,
@@ -518,9 +522,9 @@ function assembleReport(
       "| Name | Title | Seniority | Buying Role | LinkedIn |",
       "|------|-------|-----------|-------------|----------|",
     );
-    for (const contact of briefing.contacts.slice(0, 10)) {
+    for (const contact of briefing.contacts.slice(0, MAX_CONTACTS_IN_REPORT)) {
       lines.push(
-        `| ${contact.name} | ${contact.title ?? "Not publicly available"} | ${contact.seniority} | ${contact.buyingRole} | ${contact.linkedin ?? "-"} |`,
+        `| ${contact.name} | ${contact.title ?? NOT_PUBLICLY_AVAILABLE} | ${contact.seniority} | ${contact.buyingRole} | ${contact.linkedin ?? "-"} |`,
       );
     }
     lines.push("", "---", "");
