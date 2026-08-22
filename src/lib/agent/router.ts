@@ -14,13 +14,13 @@ Available skills:
 - qualify: BANT/MEDDIC lead qualification for a URL. Exactly ONE company.
 - contacts: find decision makers / buying committee for a URL or company. Exactly ONE company.
 - outreach: draft outreach emails for a company or person. Exactly ONE company.
-- match: find and rank candidate companies as prospects for what the user sells (e.g. "who should we target", "find companies that need X", "rank these prospects for fit"). Use this whenever ZERO or TWO-OR-MORE companies are involved - never for exactly one named company, which always uses one of the skills above instead.
+- match: find and rank candidate companies as prospects for what the user sells (e.g. "who should we target", "what company should I sell it to", "who is a good customer for X", "which companies would want X", "find companies that need X", "rank these prospects for fit"). This applies just as much when phrased as a question as when phrased as a request - a question asking who to sell to is match, not none. Use this whenever ZERO or TWO-OR-MORE companies are involved - never for exactly one named company, which always uses one of the skills above instead.
 Rules:
 - Company count decides prospect/research/qualify/contacts/outreach vs match: exactly one named company -> pick from the first five based on intent; zero or several -> match.
 - Extract the company URL when present (prefer https:// form); otherwise null. Only set this for a single-company skill.
 - Extract the company/person name into entity when no URL is present. Only set this for a single-company skill.
 - For match, extract every company name or URL the user explicitly listed into candidates (verbatim, as an array); when none are named (discovery mode), candidates is null.
-- When the message is ordinary conversation or a question, answer none.
+- Answer none only for messages with no prospecting intent at all (greetings, small talk, unrelated questions) - a question about who to sell to or which companies to target is match, never none.
 - Also look across the ENTIRE conversation (not just the latest message) for
   a stated description of what the user's own company sells or its ideal
   customer profile. Extract it into sellingContext verbatim or paraphrased;
