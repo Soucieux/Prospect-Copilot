@@ -1,9 +1,10 @@
 /**
  * The `match` skill: given what the user sells, find and rank candidate
- * companies as prospects - either from a user-supplied list or by
- * discovering candidates via web search.
+ * companies as prospects - either from a user-supplied list or by asking
+ * the LLM to suggest candidates when the user named none.
  */
 
+import { z } from "zod";
 import { fetchWithVariants, normalizeUrl } from "@/lib/extract/fetch-page";
 import { analyzeProspect } from "@/lib/extract/analyze-prospect";
 import { htmlToText } from "@/lib/extract/html-to-text";
@@ -11,7 +12,6 @@ import { chatCompletion, extractJsonObject, type LlmConfig } from "@/lib/llm";
 import { SUBAGENT_RESULT_SCHEMA, type EmitCallback } from "@/lib/agent/schemas";
 import { NEVER_FABRICATE_RULES, OUTPUT_CONTRACT } from "@/lib/skills/subagents";
 import { isLikelyCompanyUrl, resolveCompanyUrl } from "@/lib/agent/router";
-import { searchWeb, type SearchConfig } from "@/lib/search/volc-search";
 import { NOT_PUBLICLY_AVAILABLE } from "@/lib/constants";
 
 export interface CandidateScore {
@@ -22,7 +22,6 @@ export interface CandidateScore {
 }
 
 const MAX_CANDIDATES_TO_SCORE = 8;
-const DISCOVERY_SEARCH_COUNT = 10;
 const HOMEPAGE_CHAR_BUDGET = 4_000;
 const MATCH_RESULT_LIMIT = 5;
 
@@ -36,15 +35,21 @@ signals - do not assume any particular product category.
 ${NEVER_FABRICATE_RULES}
 ${OUTPUT_CONTRACT}`;
 
-/**
- * Build the web-search query used to discover candidate companies for a
- * described product when the user named none directly.
- * @param sellingContext what the user sells, as extracted by the router
- * @returns a search-engine query string
- */
-export function buildDiscoveryQuery(sellingContext: string): string {
-  return `companies that would want to buy: ${sellingContext}`;
-}
+const CANDIDATE_SUGGESTION_SYSTEM_PROMPT = `You help discover real companies that would be good prospects for a
+described product or ICP. Suggest up to ${MAX_CANDIDATES_TO_SCORE} real,
+specific companies that plausibly fit as customers - never invent a company
+that does not exist. For each, give your best-known official website URL, or
+null when you are not confident of the exact URL. A wrong or missing URL just
+means that suggestion gets skipped later, so only include url when you are
+reasonably sure of it.
+Respond with ONLY a JSON object of this exact shape:
+{"candidates": [{"name": "...", "url": "https://..."|null}, ...]}`;
+
+const CANDIDATE_SUGGESTIONS_SCHEMA = z.object({
+  candidates: z
+    .array(z.object({ name: z.string().min(1), url: z.string().nullable() }))
+    .max(MAX_CANDIDATES_TO_SCORE),
+});
 
 /**
  * Sort scored candidates by fit and keep only the top N.
@@ -79,7 +84,7 @@ export function renderMatchReport(
   if (ranked.length === 0) {
     return {
       title,
-      markdown: `# ${title}\n\nNo candidate companies could be scored. Try naming a few companies directly, or check that a web-search API key is configured in Settings.`,
+      markdown: `# ${title}\n\nNo candidate companies could be scored. Try naming a few companies directly.`,
       matches: [],
     };
   }
@@ -113,46 +118,73 @@ export function renderMatchReport(
 }
 
 /**
- * Resolve the pool of candidate URLs to score: the user-supplied list when
- * given, otherwise a web-search discovery pass grounded in what they sell.
- * @param searchConfig web-search credentials, or null when unconfigured
- * @param candidates company names/URLs named directly in the message
- * @param sellingContext what the user sells, used to build the discovery query
- * @returns deduped candidate URLs, capped at MAX_CANDIDATES_TO_SCORE
+ * Ask the LLM to suggest candidate companies for a described product when
+ * the user named none directly. Each suggestion is a name or a guessed URL -
+ * resolved and verified the same way as a user-supplied candidate.
+ * @param config LLM credentials
+ * @param sellingContext what the user sells, as extracted by the router
+ * @returns suggested identifiers (names or URLs), or [] on any failure
  */
-export async function resolveCandidates(
-  searchConfig: SearchConfig | null,
-  candidates: string[] | null,
-  sellingContext: string | null,
+async function suggestCandidates(
+  config: LlmConfig,
+  sellingContext: string,
 ): Promise<string[]> {
-  if (candidates && candidates.length > 0) {
-    const resolved = await Promise.all(
-      candidates.map((candidate) => resolveOneCandidate(searchConfig, candidate)),
+  try {
+    const raw = await chatCompletion(
+      config,
+      [
+        { role: "system", content: CANDIDATE_SUGGESTION_SYSTEM_PROMPT },
+        { role: "user", content: sellingContext },
+      ],
+      { temperature: 0.4, jsonMode: true },
     );
-    return dedupeByHost(resolved.filter((url): url is string => url !== null)).slice(
-      0,
-      MAX_CANDIDATES_TO_SCORE,
-    );
+    const jsonText = extractJsonObject(raw);
+    if (!jsonText) return [];
+    const parsed = CANDIDATE_SUGGESTIONS_SCHEMA.parse(JSON.parse(jsonText));
+    return parsed.candidates.map((candidate) => candidate.url ?? candidate.name);
+  } catch {
+    return [];
   }
-  if (!searchConfig || !sellingContext) return [];
-  const results = await searchWeb(
-    searchConfig,
-    buildDiscoveryQuery(sellingContext),
-    DISCOVERY_SEARCH_COUNT,
-  );
-  const urls = results.map((result) => result.url).filter(isLikelyCompanyUrl);
-  return dedupeByHost(urls).slice(0, MAX_CANDIDATES_TO_SCORE);
 }
 
 /**
- * Resolve one supplied candidate to a URL: used as-is when it already looks
- * like a company site, otherwise resolved by name via web search.
- * @param searchConfig web-search credentials, or null when unconfigured
- * @param candidate a name or URL named directly in the message
+ * Resolve the pool of candidate URLs to score: the user-supplied list when
+ * given, otherwise LLM-suggested candidates grounded in what they sell.
+ * @param config LLM credentials
+ * @param candidates company names/URLs named directly in the message
+ * @param sellingContext what the user sells, used to request suggestions
+ * @returns deduped candidate URLs, capped at MAX_CANDIDATES_TO_SCORE
+ */
+export async function resolveCandidates(
+  config: LlmConfig,
+  candidates: string[] | null,
+  sellingContext: string | null,
+): Promise<string[]> {
+  const identifiers =
+    candidates && candidates.length > 0
+      ? candidates
+      : sellingContext
+        ? await suggestCandidates(config, sellingContext)
+        : [];
+  if (identifiers.length === 0) return [];
+  const resolved = await Promise.all(
+    identifiers.map((candidate) => resolveOneCandidate(config, candidate)),
+  );
+  return dedupeByHost(resolved.filter((url): url is string => url !== null)).slice(
+    0,
+    MAX_CANDIDATES_TO_SCORE,
+  );
+}
+
+/**
+ * Resolve one candidate identifier to a URL: used as-is when it already
+ * looks like a company site, otherwise resolved by name via the LLM.
+ * @param config LLM credentials
+ * @param candidate a name or URL, from the user or a suggestion
  * @returns the resolved URL, or null when it can't be resolved
  */
 async function resolveOneCandidate(
-  searchConfig: SearchConfig | null,
+  config: LlmConfig,
   candidate: string,
 ): Promise<string | null> {
   try {
@@ -161,8 +193,7 @@ async function resolveOneCandidate(
   } catch {
     // Not a URL - fall through to name resolution.
   }
-  if (!searchConfig) return null;
-  return resolveCompanyUrl(searchConfig, candidate);
+  return resolveCompanyUrl(config, candidate);
 }
 
 /**
@@ -237,9 +268,8 @@ Homepage text: ${htmlToText(page.html).slice(0, HOMEPAGE_CHAR_BUDGET)}`;
  * @param config LLM credentials
  * @param sellingContext what the user sells, or null for a neutral judgment
  * @param candidates company names/URLs named directly in the message, or
- *   null to discover candidates via web search
+ *   null to have the LLM suggest candidates
  * @param emit progress callback (phase/agent events)
- * @param searchConfig web-search credentials, or null when unconfigured
  * @returns the report markdown and title
  */
 export async function runMatchSkill(
@@ -247,16 +277,15 @@ export async function runMatchSkill(
   sellingContext: string | null,
   candidates: string[] | null,
   emit: EmitCallback,
-  searchConfig: SearchConfig | null,
 ): Promise<{ markdown: string; title: string; matches: CandidateScore[] }> {
   emit({
     type: "phase",
     phase: "discovery",
     detail: candidates?.length
       ? `Resolving ${candidates.length} named candidate${candidates.length === 1 ? "" : "s"}`
-      : "Searching for candidate companies",
+      : "Asking for candidate company suggestions",
   });
-  const candidateUrls = await resolveCandidates(searchConfig, candidates, sellingContext);
+  const candidateUrls = await resolveCandidates(config, candidates, sellingContext);
   if (candidateUrls.length === 0) {
     emit({ type: "phase", phase: "done", detail: "No candidates to score" });
     return renderMatchReport(sellingContext, [], 0);

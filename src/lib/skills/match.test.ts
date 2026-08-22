@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  buildDiscoveryQuery,
   quickScoreCandidate,
   rankCandidates,
   renderMatchReport,
@@ -9,7 +8,6 @@ import {
   type CandidateScore,
 } from "./match";
 import type { LlmConfig } from "@/lib/llm";
-import type { SearchConfig } from "@/lib/search/volc-search";
 
 vi.mock("@/lib/extract/fetch-page", async (importOriginal) => {
   const actual =
@@ -31,46 +29,40 @@ const CONFIG: LlmConfig = {
   apiKey: "test-key",
   model: "test-model",
 };
-const SEARCH_CONFIG: SearchConfig = { apiKey: "search-key" };
 
-/** Stub global fetch to route search-API and chat-completions calls separately. */
+/**
+ * Stub the single chat-completions endpoint, branching the canned response
+ * by which system prompt the call used (quick-score, candidate suggestion,
+ * or name-to-URL resolution) since all three now hit the same LLM.
+ */
 function stubNetwork(options: {
-  searchResults?: { title: string; url: string }[];
+  suggestJson?: Record<string, unknown>;
+  urlGuess?: string;
   scoreJson?: Record<string, unknown>;
 }): void {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("global_search")) {
-        return new Response(
-          JSON.stringify({
-            Result: {
-              Data: (options.searchResults ?? []).map((r) => ({
-                Title: r.title,
-                Url: r.url,
-              })),
-            },
-          }),
-        );
-      }
-      return new Response(
-        JSON.stringify({
-          choices: [
-            {
-              message: {
-                content: JSON.stringify(
-                  options.scoreJson ?? {
-                    score: 70,
-                    summary: "Decent fit.",
-                    findings: [],
-                    recommendation: "Reach out.",
-                  },
-                ),
+    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body
+        ? (JSON.parse(String(init.body)) as {
+            messages?: { content?: string }[];
+          })
+        : {};
+      const systemContent = body.messages?.[0]?.content ?? "";
+      const content = systemContent.includes("discover real companies")
+        ? JSON.stringify(options.suggestJson ?? { candidates: [] })
+        : systemContent.includes("resolve a company or person's name")
+          ? (options.urlGuess ?? "unknown")
+          : JSON.stringify(
+              options.scoreJson ?? {
+                score: 70,
+                summary: "Decent fit.",
+                findings: [],
+                recommendation: "Reach out.",
               },
-            },
-          ],
-        }),
+            );
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content } }] }),
       );
     }),
   );
@@ -79,13 +71,6 @@ function stubNetwork(options: {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.mocked(fetchWithVariants).mockClear();
-});
-
-describe("buildDiscoveryQuery", () => {
-  it("builds a search query from the selling context", () => {
-    const query = buildDiscoveryQuery("payroll software for mid-market companies");
-    expect(query).toContain("payroll software for mid-market companies");
-  });
 });
 
 describe("rankCandidates", () => {
@@ -173,38 +158,48 @@ describe("renderMatchReport", () => {
 });
 
 describe("resolveCandidates", () => {
-  it("uses supplied URLs as-is without searching", async () => {
+  it("uses supplied URLs as-is without any LLM call", async () => {
     stubNetwork({});
     const urls = await resolveCandidates(
-      null,
+      CONFIG,
       ["https://acme.example.com"],
       "payroll software",
     );
     expect(urls).toEqual(["https://acme.example.com/"]);
   });
 
-  it("resolves a supplied company name via search", async () => {
-    stubNetwork({
-      searchResults: [{ title: "Acme", url: "https://acme.example.com" }],
-    });
-    const urls = await resolveCandidates(SEARCH_CONFIG, ["Acme Corp"], "payroll software");
-    expect(urls).toEqual(["https://acme.example.com"]);
+  it("resolves a supplied company name via an LLM guess", async () => {
+    stubNetwork({ urlGuess: "https://acme.example.com" });
+    const urls = await resolveCandidates(CONFIG, ["Acme Corp"], "payroll software");
+    expect(urls).toEqual(["https://acme.example.com/"]);
   });
 
-  it("filters out non-company domains in discovery mode", async () => {
-    stubNetwork({
-      searchResults: [
-        { title: "Acme", url: "https://acme.example.com" },
-        { title: "Acme on LinkedIn", url: "https://linkedin.com/company/acme" },
-      ],
-    });
-    const urls = await resolveCandidates(SEARCH_CONFIG, null, "payroll software");
-    expect(urls).toEqual(["https://acme.example.com"]);
-  });
-
-  it("returns an empty list for discovery mode with no search config", async () => {
-    const urls = await resolveCandidates(null, null, "payroll software");
+  it("drops a guessed URL that isn't a real company site", async () => {
+    stubNetwork({ urlGuess: "https://linkedin.com/company/acme" });
+    const urls = await resolveCandidates(CONFIG, ["Acme Corp"], "payroll software");
     expect(urls).toEqual([]);
+  });
+
+  it("returns an empty list when there is nothing to work with", async () => {
+    const urls = await resolveCandidates(CONFIG, null, null);
+    expect(urls).toEqual([]);
+  });
+
+  it("asks the LLM to suggest candidates in discovery mode and resolves each", async () => {
+    stubNetwork({
+      suggestJson: {
+        candidates: [
+          { name: "Acme Corp", url: "https://acme.example.com" },
+          { name: "Globex Inc", url: null },
+        ],
+      },
+      urlGuess: "https://globex.example.com",
+    });
+    const urls = await resolveCandidates(CONFIG, null, "payroll software");
+    expect(urls).toEqual([
+      "https://acme.example.com/",
+      "https://globex.example.com/",
+    ]);
   });
 });
 
@@ -274,7 +269,6 @@ describe("runMatchSkill", () => {
       "payroll software",
       ["https://acme.example.com", "https://globex.example.com"],
       (event) => events.push(event),
-      null,
     );
     expect(markdown).toContain("Acme Corp");
     expect(markdown).toContain("75");
@@ -290,12 +284,14 @@ describe("runMatchSkill", () => {
     expect(doneEvents).toHaveLength(2);
   });
 
-  it("discovers and scores candidates via web search when none are named", async () => {
+  it("suggests and scores candidates via the LLM when none are named", async () => {
     stubNetwork({
-      searchResults: [
-        { title: "Acme", url: "https://acme.example.com" },
-        { title: "Globex", url: "https://globex.example.com" },
-      ],
+      suggestJson: {
+        candidates: [
+          { name: "Acme Corp", url: "https://acme.example.com" },
+          { name: "Globex Inc", url: "https://globex.example.com" },
+        ],
+      },
       scoreJson: {
         score: 60,
         summary: "Decent fit.",
@@ -308,19 +304,18 @@ describe("runMatchSkill", () => {
       "payroll software",
       null,
       () => {},
-      SEARCH_CONFIG,
     );
     expect(markdown).toContain("Acme Corp");
     expect(markdown).toContain("60");
   });
 
   it("renders a no-candidates report instead of throwing when nothing resolves", async () => {
+    stubNetwork({ suggestJson: { candidates: [] } });
     const { markdown } = await runMatchSkill(
       CONFIG,
       "payroll software",
       null,
       () => {},
-      null,
     );
     expect(markdown.length).toBeGreaterThan(0);
     expect(markdown).not.toContain("undefined");
