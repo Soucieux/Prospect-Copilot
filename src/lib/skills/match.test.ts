@@ -30,6 +30,12 @@ const CONFIG: LlmConfig = {
   model: "test-model",
 };
 
+const DEFAULT_SCORE_JSON = {
+  score: 70,
+  description: "Sells payroll and HR software to mid-market companies.",
+  fitReason: "Decent fit for the described offering.",
+};
+
 /**
  * Stub the single chat-completions endpoint, branching the canned response
  * by which system prompt the call used (quick-score, candidate suggestion,
@@ -53,14 +59,7 @@ function stubNetwork(options: {
         ? JSON.stringify(options.suggestJson ?? { candidates: [] })
         : systemContent.includes("resolve a company or person's name")
           ? (options.urlGuess ?? "unknown")
-          : JSON.stringify(
-              options.scoreJson ?? {
-                score: 70,
-                summary: "Decent fit.",
-                findings: [],
-                recommendation: "Reach out.",
-              },
-            );
+          : JSON.stringify(options.scoreJson ?? DEFAULT_SCORE_JSON);
       return new Response(
         JSON.stringify({ choices: [{ message: { content } }] }),
       );
@@ -78,7 +77,10 @@ describe("rankCandidates", () => {
     url: `https://${name}.example.com`,
     companyName: name,
     score,
-    summary: `${name} summary`,
+    description: `${name} description`,
+    fitReason: `${name} fit`,
+    location: null,
+    founded: null,
   });
 
   it("sorts by score descending", () => {
@@ -103,49 +105,46 @@ describe("rankCandidates", () => {
 });
 
 describe("renderMatchReport", () => {
-  it("lists ranked candidates with score and a link", () => {
+  const acme: CandidateScore = {
+    url: "https://acme.example.com",
+    companyName: "Acme Corp",
+    score: 82,
+    description: "Acme Corp sells arts and crafts supplies online.",
+    fitReason: "Strong fit: growing headcount and no existing payroll vendor.",
+    location: "San Francisco, CA",
+    founded: "1998",
+  };
+
+  it("lists ranked candidates with score, description, location, and founded", () => {
     const { markdown, title, matches } = renderMatchReport(
       "payroll software",
-      [
-        {
-          url: "https://acme.example.com",
-          companyName: "Acme Corp",
-          score: 82,
-          summary: "Strong fit: growing headcount and no existing payroll vendor.",
-        },
-      ],
+      [acme],
       1,
     );
     expect(markdown).toContain("Acme Corp");
     expect(markdown).toContain("82");
     expect(markdown).toContain("https://acme.example.com");
+    expect(markdown).toContain("Acme Corp sells arts and crafts supplies online.");
     expect(markdown).toContain(
       "Strong fit: growing headcount and no existing payroll vendor.",
     );
-    expect(matches).toEqual([
-      {
-        url: "https://acme.example.com",
-        companyName: "Acme Corp",
-        score: 82,
-        summary: "Strong fit: growing headcount and no existing payroll vendor.",
-      },
-    ]);
+    expect(markdown).toContain("San Francisco, CA");
+    expect(markdown).toContain("1998");
+    expect(matches).toEqual([acme]);
     expect(title.length).toBeGreaterThan(0);
   });
 
-  it("notes when candidates were dropped from a larger pool", () => {
+  it("omits the location/founded line when neither is known", () => {
     const { markdown } = renderMatchReport(
       "payroll software",
-      [
-        {
-          url: "https://acme.example.com",
-          companyName: "Acme Corp",
-          score: 82,
-          summary: "Good fit.",
-        },
-      ],
-      5,
+      [{ ...acme, location: null, founded: null }],
+      1,
     );
+    expect(markdown).not.toContain("Not publicly available");
+  });
+
+  it("notes when candidates were dropped from a larger pool", () => {
+    const { markdown } = renderMatchReport("payroll software", [acme], 5);
     expect(markdown).toMatch(/5/);
   });
 
@@ -204,13 +203,12 @@ describe("resolveCandidates", () => {
 });
 
 describe("quickScoreCandidate", () => {
-  it("scores a candidate from its homepage", async () => {
+  it("scores a candidate and fills description/fitReason from the LLM", async () => {
     stubNetwork({
       scoreJson: {
         score: 82,
-        summary: "Strong fit.",
-        findings: [],
-        recommendation: "Reach out.",
+        description: "Acme Corp is a payroll software vendor.",
+        fitReason: "Strong fit for the described offering.",
       },
     });
     const result = await quickScoreCandidate(
@@ -221,6 +219,37 @@ describe("quickScoreCandidate", () => {
     expect(result).not.toBeNull();
     expect(result?.score).toBe(82);
     expect(result?.companyName).toBe("Acme Corp");
+    expect(result?.description).toBe("Acme Corp is a payroll software vendor.");
+    expect(result?.fitReason).toBe("Strong fit for the described offering.");
+  });
+
+  it("fills location and founded from the page's own structured data", async () => {
+    vi.mocked(fetchWithVariants).mockResolvedValueOnce({
+      url: "https://acme.example.com",
+      status: 200,
+      html: `<html><head><title>Acme</title>
+<script type="application/ld+json">{"@type":"Organization","name":"Acme Corp","foundingDate":"1998","address":"San Francisco, CA"}</script>
+</head><body>Payroll for growing teams</body></html>`,
+    });
+    stubNetwork({});
+    const result = await quickScoreCandidate(
+      CONFIG,
+      "payroll software",
+      "https://acme.example.com",
+    );
+    expect(result?.location).toBe("San Francisco, CA");
+    expect(result?.founded).toBe("1998");
+  });
+
+  it("leaves location and founded null when the page has no structured data", async () => {
+    stubNetwork({});
+    const result = await quickScoreCandidate(
+      CONFIG,
+      "payroll software",
+      "https://acme.example.com",
+    );
+    expect(result?.location).toBeNull();
+    expect(result?.founded).toBeNull();
   });
 
   it("returns null when the candidate can't be fetched", async () => {
@@ -238,9 +267,8 @@ describe("quickScoreCandidate", () => {
     stubNetwork({
       scoreJson: {
         score: 60,
-        summary: "Fine.",
-        findings: [],
-        recommendation: "Consider.",
+        description: "A candidate company.",
+        fitReason: "Fine.",
       },
     });
     vi.mocked(fetchWithVariants).mockRejectedValueOnce(new Error("unreachable"));
@@ -258,9 +286,8 @@ describe("runMatchSkill", () => {
     stubNetwork({
       scoreJson: {
         score: 75,
-        summary: "Good fit.",
-        findings: [],
-        recommendation: "Reach out.",
+        description: "A payroll and HR software vendor.",
+        fitReason: "Good fit.",
       },
     });
     const events: unknown[] = [];
@@ -294,9 +321,8 @@ describe("runMatchSkill", () => {
       },
       scoreJson: {
         score: 60,
-        summary: "Decent fit.",
-        findings: [],
-        recommendation: "Consider.",
+        description: "A payroll and HR software vendor.",
+        fitReason: "Decent fit.",
       },
     });
     const { markdown } = await runMatchSkill(

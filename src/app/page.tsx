@@ -505,8 +505,9 @@ function bar(score: number): string {
 }
 
 /**
- * Ranked candidate cards for the match skill: title, score, and a one-line
- * reason up front; clicking one runs a full prospect audit on it.
+ * Ranked candidate cards for the match skill: name, score, location/founded
+ * when known, a factual description, and the fit judgment; clicking one
+ * runs a full prospect audit on it.
  * @param candidates the ranked candidates to show
  * @param disabled true while another request is streaming
  * @param onSelect called with the clicked candidate
@@ -535,7 +536,18 @@ function MatchCandidateCards({
             </strong>
             <span className="match-card-score">{candidate.score}/100</span>
           </div>
-          <p className="match-card-summary">{candidate.summary}</p>
+          {candidate.location || candidate.founded ? (
+            <div className="match-card-meta">
+              {candidate.location ? <span>{candidate.location}</span> : null}
+              {candidate.founded ? (
+                <span>Founded {candidate.founded}</span>
+              ) : null}
+            </div>
+          ) : null}
+          <p className="match-card-description">{candidate.description}</p>
+          <p className="match-card-fit">
+            <strong>Fit:</strong> {candidate.fitReason}
+          </p>
           <span className="match-card-hint">
             Click for a full prospect audit →
           </span>

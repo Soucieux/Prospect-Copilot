@@ -15,7 +15,10 @@ export interface MatchCandidate {
   url: string;
   companyName: string;
   score: number;
-  summary: string;
+  description: string;
+  fitReason: string;
+  location: string | null;
+  founded: string | null;
 }
 
 export interface ReportState {

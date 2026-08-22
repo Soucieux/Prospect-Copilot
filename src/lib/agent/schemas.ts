@@ -109,7 +109,10 @@ export const CHAT_EVENT_SCHEMA = z.discriminatedUnion("type", [
             url: z.string(),
             companyName: z.string(),
             score: z.number(),
-            summary: z.string(),
+            description: z.string(),
+            fitReason: z.string(),
+            location: z.string().nullable(),
+            founded: z.string().nullable(),
           }),
         )
         .nullable(),

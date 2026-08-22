@@ -9,8 +9,8 @@ import { fetchWithVariants, normalizeUrl } from "@/lib/extract/fetch-page";
 import { analyzeProspect } from "@/lib/extract/analyze-prospect";
 import { htmlToText } from "@/lib/extract/html-to-text";
 import { chatCompletion, extractJsonObject, type LlmConfig } from "@/lib/llm";
-import { SUBAGENT_RESULT_SCHEMA, type EmitCallback } from "@/lib/agent/schemas";
-import { NEVER_FABRICATE_RULES, OUTPUT_CONTRACT } from "@/lib/skills/subagents";
+import type { EmitCallback } from "@/lib/agent/schemas";
+import { NEVER_FABRICATE_RULES } from "@/lib/skills/subagents";
 import { isLikelyCompanyUrl, resolveCompanyUrl } from "@/lib/agent/router";
 import { NOT_PUBLICLY_AVAILABLE } from "@/lib/constants";
 
@@ -18,22 +18,38 @@ export interface CandidateScore {
   url: string;
   companyName: string;
   score: number;
-  summary: string;
+  /** Factual summary of what the company does, for someone unfamiliar with it. */
+  description: string;
+  /** Judgment of how well this company fits what the seller offers. */
+  fitReason: string;
+  /** From the page's own structured data, when present. */
+  location: string | null;
+  /** From the page's own structured data, when present. */
+  founded: string | null;
 }
 
 const MAX_CANDIDATES_TO_SCORE = 8;
 const HOMEPAGE_CHAR_BUDGET = 4_000;
 const MATCH_RESULT_LIMIT = 5;
 
+const QUICK_SCORE_SCHEMA = z.object({
+  score: z.number().min(0).max(100),
+  description: z.string().min(1),
+  fitReason: z.string().min(1),
+});
+
 const QUICK_SCORE_SYSTEM_PROMPT = `You are a quick-fit scout for a sales intelligence tool.
-Given a homepage briefing for ONE candidate company, judge how good a prospect
-it is. This is a single fast pass across possibly many candidates - be
-decisive, but never invent facts not in the briefing.
+Given a homepage briefing for ONE candidate company, write a short factual
+description of what the company does - for someone who has never heard of
+it - then judge how good a prospect it is. This is a single fast pass across
+possibly many candidates - be decisive, but never invent facts not in the
+briefing.
 When a WHAT WE SELL line is given, judge fit specifically against that
-offering. When it is absent, judge only generic B2B health and readiness
-signals - do not assume any particular product category.
+offering in fitReason. When it is absent, judge only generic B2B health and
+readiness signals in fitReason - do not assume any particular product category.
 ${NEVER_FABRICATE_RULES}
-${OUTPUT_CONTRACT}`;
+Respond with ONLY a JSON object of this exact shape:
+{"score": <number 0-100>, "description": "<1-2 sentence factual description of what the company does>", "fitReason": "<1-2 sentence judgment of fit>"}`;
 
 const CANDIDATE_SUGGESTION_SYSTEM_PROMPT = `You help discover real companies that would be good prospects for a
 described product or ICP. Suggest up to ${MAX_CANDIDATES_TO_SCORE} real,
@@ -96,9 +112,17 @@ export function renderMatchReport(
     "",
   ];
   ranked.forEach((candidate, index) => {
+    lines.push(`${index + 1}. **${candidate.companyName}** - ${candidate.score}/100`);
+    if (candidate.location || candidate.founded) {
+      const parts = [
+        candidate.location ? `Location: ${candidate.location}` : null,
+        candidate.founded ? `Founded: ${candidate.founded}` : null,
+      ].filter((part): part is string => part !== null);
+      lines.push(`   ${parts.join(" · ")}`);
+    }
     lines.push(
-      `${index + 1}. **${candidate.companyName}** - ${candidate.score}/100`,
-      `   ${candidate.summary}`,
+      `   ${candidate.description}`,
+      `   Fit: ${candidate.fitReason}`,
       `   ${candidate.url}`,
       "",
     );
@@ -250,12 +274,15 @@ Homepage text: ${htmlToText(page.html).slice(0, HOMEPAGE_CHAR_BUDGET)}`;
     );
     const jsonText = extractJsonObject(raw);
     if (!jsonText) return null;
-    const parsed = SUBAGENT_RESULT_SCHEMA.parse(JSON.parse(jsonText));
+    const parsed = QUICK_SCORE_SCHEMA.parse(JSON.parse(jsonText));
     return {
       url: page.url,
       companyName: extraction.companyName ?? new URL(page.url).hostname,
       score: parsed.score,
-      summary: parsed.summary,
+      description: parsed.description,
+      fitReason: parsed.fitReason,
+      location: extraction.jsonLdOrg?.address ?? null,
+      founded: extraction.jsonLdOrg?.foundingDate ?? null,
     };
   } catch {
     return null;

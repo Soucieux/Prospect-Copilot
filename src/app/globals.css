@@ -673,11 +673,23 @@ button.secondary:hover:not(:disabled) {
   white-space: nowrap;
 }
 
-.match-card-summary {
+.match-card-meta {
+  display: flex;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.match-card-description,
+.match-card-fit {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.45;
   margin: 0;
+}
+
+.match-card-fit strong {
+  color: var(--text);
 }
 
 .match-card-hint {
