@@ -119,7 +119,7 @@ describe("rankCandidates", () => {
 
 describe("renderMatchReport", () => {
   it("lists ranked candidates with score and a link", () => {
-    const { markdown, title } = renderMatchReport(
+    const { markdown, title, matches } = renderMatchReport(
       "payroll software",
       [
         {
@@ -137,6 +137,14 @@ describe("renderMatchReport", () => {
     expect(markdown).toContain(
       "Strong fit: growing headcount and no existing payroll vendor.",
     );
+    expect(matches).toEqual([
+      {
+        url: "https://acme.example.com",
+        companyName: "Acme Corp",
+        score: 82,
+        summary: "Strong fit: growing headcount and no existing payroll vendor.",
+      },
+    ]);
     expect(title.length).toBeGreaterThan(0);
   });
 
@@ -157,9 +165,10 @@ describe("renderMatchReport", () => {
   });
 
   it("renders a clear message when no candidates could be scored", () => {
-    const { markdown } = renderMatchReport("payroll software", [], 0);
+    const { markdown, matches } = renderMatchReport("payroll software", [], 0);
     expect(markdown.length).toBeGreaterThan(0);
     expect(markdown).not.toContain("undefined");
+    expect(matches).toEqual([]);
   });
 });
 
@@ -260,7 +269,7 @@ describe("runMatchSkill", () => {
       },
     });
     const events: unknown[] = [];
-    const { markdown, title } = await runMatchSkill(
+    const { markdown, title, matches } = await runMatchSkill(
       CONFIG,
       "payroll software",
       ["https://acme.example.com", "https://globex.example.com"],
@@ -270,6 +279,8 @@ describe("runMatchSkill", () => {
     expect(markdown).toContain("Acme Corp");
     expect(markdown).toContain("75");
     expect(title.length).toBeGreaterThan(0);
+    expect(matches).toHaveLength(2);
+    expect(matches.every((m) => m.score === 75)).toBe(true);
     const agentEvents = events.filter(
       (e): e is { type: string; status: string } =>
         typeof e === "object" && e !== null && (e as { type?: string }).type === "agent",

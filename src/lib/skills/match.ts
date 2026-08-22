@@ -71,7 +71,7 @@ export function renderMatchReport(
   sellingContext: string | null,
   ranked: CandidateScore[],
   totalConsidered: number,
-): { markdown: string; title: string } {
+): { markdown: string; title: string; matches: CandidateScore[] } {
   const title = sellingContext
     ? `Prospect matches for: ${sellingContext}`
     : "Prospect matches";
@@ -80,6 +80,7 @@ export function renderMatchReport(
     return {
       title,
       markdown: `# ${title}\n\nNo candidate companies could be scored. Try naming a few companies directly, or check that a web-search API key is configured in Settings.`,
+      matches: [],
     };
   }
 
@@ -108,7 +109,7 @@ export function renderMatchReport(
   lines.push(
     "> Ask about any one of these by name for a full prospect audit.",
   );
-  return { title, markdown: lines.join("\n") };
+  return { title, markdown: lines.join("\n"), matches: ranked };
 }
 
 /**
@@ -247,7 +248,7 @@ export async function runMatchSkill(
   candidates: string[] | null,
   emit: EmitCallback,
   searchConfig: SearchConfig | null,
-): Promise<{ markdown: string; title: string }> {
+): Promise<{ markdown: string; title: string; matches: CandidateScore[] }> {
   emit({
     type: "phase",
     phase: "discovery",

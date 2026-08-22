@@ -102,6 +102,17 @@ export const CHAT_EVENT_SCHEMA = z.discriminatedUnion("type", [
           }),
         )
         .nullable(),
+      // Populated only for kind "match": the ranked candidates to render as cards.
+      matches: z
+        .array(
+          z.object({
+            url: z.string(),
+            companyName: z.string(),
+            score: z.number(),
+            summary: z.string(),
+          }),
+        )
+        .nullable(),
       markdown: z.string(),
     }),
   }),

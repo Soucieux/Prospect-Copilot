@@ -134,6 +134,7 @@ export async function POST(request: NextRequest): Promise<Response> {
                 score: row.score,
                 weight: row.weight,
               })),
+              matches: null,
               markdown: outcome.markdown,
             },
           });
@@ -154,7 +155,7 @@ export async function POST(request: NextRequest): Promise<Response> {
               phase: "routing",
               detail: "Matched the match skill - finding candidate prospects",
             });
-            const { markdown, title } = await runMatchSkill(
+            const { markdown, title, matches } = await runMatchSkill(
               config,
               routing.sellingContext,
               routing.candidates,
@@ -171,6 +172,7 @@ export async function POST(request: NextRequest): Promise<Response> {
                 grade: null,
                 confidence: null,
                 categories: null,
+                matches,
                 markdown,
               },
             });
@@ -201,6 +203,7 @@ export async function POST(request: NextRequest): Promise<Response> {
               grade: null,
               confidence: null,
               categories: null,
+              matches: null,
               markdown,
             },
           });

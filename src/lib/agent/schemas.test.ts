@@ -41,6 +41,14 @@ describe("CHAT_EVENT_SCHEMA", () => {
         grade: null,
         confidence: null,
         categories: null,
+        matches: [
+          {
+            url: "https://acme.example.com",
+            companyName: "Acme Corp",
+            score: 82,
+            summary: "Strong fit.",
+          },
+        ],
         markdown: "# Matches\n",
       },
     });
