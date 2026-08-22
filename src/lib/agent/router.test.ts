@@ -34,6 +34,7 @@ describe("routeMessage", () => {
       url: "https://acme.example.com",
       entity: null,
       sellingContext: "B2B payroll software for mid-market companies",
+      candidates: null,
     });
     const result = await routeMessage(
       CONFIG,
@@ -51,6 +52,7 @@ describe("routeMessage", () => {
       url: "https://acme.example.com",
       entity: null,
       sellingContext: "B2B payroll software for mid-market companies",
+      candidates: null,
     });
     const history = [
       { role: "user" as const, content: "we sell payroll software" },
@@ -72,6 +74,7 @@ describe("routeMessage", () => {
       url: "https://acme.example.com",
       entity: null,
       sellingContext: null,
+      candidates: null,
     });
     const result = await routeMessage(
       CONFIG,
@@ -87,6 +90,7 @@ describe("routeMessage", () => {
       url: null,
       entity: "Acme Analytics",
       sellingContext: null,
+      candidates: null,
     });
     const result = await routeMessage(
       CONFIG,
@@ -110,6 +114,7 @@ describe("routeMessage", () => {
                     url: null,
                     entity: null,
                     sellingContext: null,
+                    candidates: null,
                   }),
                 },
               },
@@ -127,5 +132,42 @@ describe("routeMessage", () => {
     expect(
       body.messages.some((m) => m.content === "we sell payroll software"),
     ).toBe(true);
+  });
+
+  it("routes to 'match' with no candidates for discovery mode", async () => {
+    stubRouterResponse({
+      skill: "match",
+      url: null,
+      entity: null,
+      sellingContext: "payroll software for mid-market companies",
+      candidates: null,
+    });
+    const result = await routeMessage(
+      CONFIG,
+      "we sell payroll software for mid-market companies, who should we target?",
+      [],
+    );
+    expect(result.skill).toBe("match");
+    expect(result.candidates).toBeNull();
+  });
+
+  it("routes to 'match' with a candidates list when companies are named", async () => {
+    stubRouterResponse({
+      skill: "match",
+      url: null,
+      entity: null,
+      sellingContext: "payroll software",
+      candidates: ["Acme Corp", "https://globex.example.com"],
+    });
+    const result = await routeMessage(
+      CONFIG,
+      "we sell payroll software, rank Acme Corp and https://globex.example.com for fit",
+      [],
+    );
+    expect(result.skill).toBe("match");
+    expect(result.candidates).toEqual([
+      "Acme Corp",
+      "https://globex.example.com",
+    ]);
   });
 });
