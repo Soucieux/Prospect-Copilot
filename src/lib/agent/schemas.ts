@@ -28,11 +28,21 @@ export type SubagentResult = z.infer<typeof SUBAGENT_RESULT_SCHEMA>;
 
 /** Intent classification output for the skill router. */
 export const ROUTER_RESULT_SCHEMA = z.object({
-  skill: z.enum(["prospect", "research", "qualify", "contacts", "outreach", "none"]),
+  skill: z.enum([
+    "prospect",
+    "research",
+    "qualify",
+    "contacts",
+    "outreach",
+    "match",
+    "none",
+  ]),
   url: z.string().nullable(),
   entity: z.string().nullable(),
   /** The seller's product/ICP, when stated anywhere in the conversation. */
   sellingContext: z.string().nullable(),
+  /** Companies explicitly named as match candidates, verbatim; null otherwise. */
+  candidates: z.array(z.string()).nullable(),
 });
 
 export type RouterResult = z.infer<typeof ROUTER_RESULT_SCHEMA>;
@@ -75,6 +85,7 @@ export const CHAT_EVENT_SCHEMA = z.discriminatedUnion("type", [
         "qualify",
         "contacts",
         "outreach",
+        "match",
       ]),
       companyName: z.string(),
       url: z.string().nullable(),
@@ -98,3 +109,6 @@ export const CHAT_EVENT_SCHEMA = z.discriminatedUnion("type", [
 ]);
 
 export type ChatEvent = z.infer<typeof CHAT_EVENT_SCHEMA>;
+
+/** Progress callback shared by every skill that streams SSE events. */
+export type EmitCallback = (event: ChatEvent) => void;
