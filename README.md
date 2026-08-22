@@ -23,7 +23,7 @@ how many companies you name - not by whether a product is mentioned:
 
 | Companies you name | No product mentioned | Product mentioned |
 | --- | --- | --- |
-| **None** | Plain chat | Web search finds candidates, quick-scores each, returns the top 5 ranked by fit |
+| **None** | Plain chat | The LLM suggests candidates, quick-scores each, returns the top 5 ranked by fit |
 | **One** | Full audit (prospect/research/qualify/contacts/outreach, as usual) | Same full audit, now grounded in the product you described |
 | **Two or more** | Each is quick-scored generically - useful for narrowing a shortlist before you've settled on a pitch | Each is quick-scored against the product, ranked, top 5 shown |
 
@@ -37,9 +37,12 @@ sharper scoring next time.
 The ranked list from `match` renders as clickable cards (company, score, and
 a one-line reason) - a fast, single LLM call per candidate, not the full
 five-subagent audit. Click any card to run the full audit on that company.
-Discovery mode (naming no companies) needs a Volcengine web-search key
-configured (see below); without one, it replies asking you to name a few
-candidates directly instead of erroring out.
+Discovery mode (naming no companies) asks the same LLM to suggest candidates
+directly from its own knowledge - there is no separate search API. Every
+suggested company still gets its homepage fetched and scored like any other
+candidate, so a wrong or outdated guess just means that one gets skipped
+rather than shown; naming a few candidates yourself avoids relying on the
+model's guesses at all.
 
 ```
 we sell payroll software for mid-market companies, who should we target?
@@ -47,16 +50,6 @@ we sell payroll software, analyze https://stripe.com as a prospect
 we sell payroll software, rank Acme Corp, Globex, and Initech for fit
 compare Acme Corp, Globex, and Initech
 ```
-
-### Optional: web search grounding
-
-The backend accepts a Volcengine web-search key (联网搜索, `https://open.feedcoopapi.com/search_api/global_search`) via the `x-search-api-key` header on `/api/chat` and gains three behaviors when present:
-
-- **Name to URL resolution** - "analyze Acme Analytics" (no URL) first searches for the official site, then runs the pipeline on it.
-- **Third-party signals** - prospect audits and the research/qualify skills search the web for funding and news, and the findings cite independent sources alongside the company's own site.
-- **Candidate discovery** - the match skill's discovery mode (no companies named) searches the web for candidates to rank; without a key, name a few candidates directly instead.
-
-This is no longer exposed in the Settings UI. Omit the header and everything works as before, grounded only on the prospect's own pages. Search failures never break a run - they degrade silently.
 
 ## Setup
 
