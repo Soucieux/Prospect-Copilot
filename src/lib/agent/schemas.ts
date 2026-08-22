@@ -31,6 +31,8 @@ export const ROUTER_RESULT_SCHEMA = z.object({
   skill: z.enum(["prospect", "research", "qualify", "contacts", "outreach", "none"]),
   url: z.string().nullable(),
   entity: z.string().nullable(),
+  /** The seller's product/ICP, when stated anywhere in the conversation. */
+  sellingContext: z.string().nullable(),
 });
 
 export type RouterResult = z.infer<typeof ROUTER_RESULT_SCHEMA>;

@@ -19,27 +19,40 @@ Rules:
 - Extract the company URL when present (prefer https:// form); otherwise null.
 - Extract the company/person name into entity when no URL is present.
 - When the message is ordinary conversation or a question, answer none.
+- Also look across the ENTIRE conversation (not just the latest message) for
+  a stated description of what the user's own company sells or its ideal
+  customer profile. Extract it into sellingContext verbatim or paraphrased;
+  otherwise null. Never guess or infer a product from the prospect being
+  discussed - only from what the user has explicitly said about themselves.
 
-Respond with ONLY JSON: {"skill": "prospect|research|qualify|contacts|outreach|none", "url": <string|null>, "entity": <string|null>}`;
+Respond with ONLY JSON: {"skill": "prospect|research|qualify|contacts|outreach|none", "url": <string|null>, "entity": <string|null>, "sellingContext": <string|null>}`;
 
-const NONE_RESULT: RouterResult = { skill: "none", url: null, entity: null };
+const NONE_RESULT: RouterResult = {
+  skill: "none",
+  url: null,
+  entity: null,
+  sellingContext: null,
+};
 
 /**
  * Classify a user message into a skill invocation or plain chat.
  * @param config LLM credentials
  * @param message the user's chat message
+ * @param history prior conversation turns, scanned for a stated selling context
  * @returns routing decision; parse failures degrade to none
  * @throws LlmError propagated when the endpoint itself fails
  */
 export async function routeMessage(
   config: LlmConfig,
   message: string,
+  history: { role: "user" | "assistant"; content: string }[] = [],
   searchConfig: SearchConfig | null = null,
 ): Promise<RouterResult> {
   const raw = await chatCompletion(
     config,
     [
       { role: "system", content: ROUTER_SYSTEM_PROMPT },
+      ...history,
       { role: "user", content: message },
     ],
     { temperature: 0, jsonMode: true },
