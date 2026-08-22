@@ -32,11 +32,6 @@ import { analyzeProspect } from "@/lib/extract/analyze-prospect";
 import { findContacts, type ContactCandidate } from "@/lib/extract/contact-finder";
 import { fetchPage, fetchWithVariants } from "@/lib/extract/fetch-page";
 import { htmlToText } from "@/lib/extract/html-to-text";
-import {
-  formatSignalsBriefing,
-  searchCompanySignals,
-  type SearchConfig,
-} from "@/lib/search/volc-search";
 import { NOT_PUBLICLY_AVAILABLE } from "@/lib/constants";
 
 const SUBPAGE_PATTERNS: { name: string; pattern: RegExp }[] = [
@@ -78,8 +73,6 @@ interface DiscoveryBriefing {
   } | null;
   pages: BriefingPage[];
   contacts: ContactCandidate[];
-  /** Markdown block of third-party search signals; empty when disabled. */
-  thirdPartySignals: string;
 }
 
 /**
@@ -87,7 +80,6 @@ interface DiscoveryBriefing {
  * @param config LLM credentials
  * @param rawUrl the prospect URL from the router
  * @param emit progress callback (phase/agent events)
- * @param searchConfig optional web-search credentials
  * @param sellingContext optional description of the seller's product/ICP,
  *   used to ground company-fit and competitive scoring
  * @returns final report markdown plus the structured score fields
@@ -97,7 +89,6 @@ export async function runProspectPipeline(
   config: LlmConfig,
   rawUrl: string,
   emit: EmitCallback,
-  searchConfig: SearchConfig | null = null,
   sellingContext: string | null = null,
 ): Promise<{
   markdown: string;
@@ -123,18 +114,6 @@ export async function runProspectPipeline(
     detail: `Discovery complete - ${subpages.length + 1} pages, ${contacts.length} contacts found`,
   });
 
-  let thirdPartySignals = "";
-  if (searchConfig && extraction.companyName) {
-    emit({
-      type: "phase",
-      phase: "discovery",
-      detail: "Searching the web for third-party signals (funding, news)",
-    });
-    thirdPartySignals = formatSignalsBriefing(
-      await searchCompanySignals(searchConfig, extraction.companyName),
-    );
-  }
-
   const briefing: DiscoveryBriefing = {
     url: homepage.url,
     companyName: extraction.companyName,
@@ -159,7 +138,6 @@ export async function runProspectPipeline(
       })),
     ],
     contacts,
-    thirdPartySignals,
   };
 
   emit({ type: "phase", phase: "analysis", detail: "Launching 5 parallel analysis agents" });

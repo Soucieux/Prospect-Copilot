@@ -6,7 +6,6 @@ import {
   LLM_API_KEY_HEADER,
   LLM_BASE_URL_HEADER,
   LLM_MODEL_HEADER,
-  SEARCH_API_KEY_HEADER,
 } from "@/lib/constants";
 import { LlmError, streamChatCompletion, type LlmConfig } from "@/lib/llm";
 import { routeMessage } from "@/lib/agent/router";
@@ -16,7 +15,6 @@ import {
   type StandaloneSkillName,
 } from "@/lib/skills/standalone";
 import { runMatchSkill } from "@/lib/skills/match";
-import type { SearchConfig } from "@/lib/search/volc-search";
 import type { ChatEvent } from "@/lib/agent/schemas";
 
 export const runtime = "nodejs";
@@ -56,16 +54,6 @@ function readLlmConfig(request: NextRequest): LlmConfig | null {
 }
 
 /**
- * Extract the optional web-search key from headers.
- * @param request the incoming chat request
- * @returns search config, or null when the search key header is absent
- */
-function readSearchConfig(request: NextRequest): SearchConfig | null {
-  const apiKey = request.headers.get(SEARCH_API_KEY_HEADER)?.trim();
-  return apiKey ? { apiKey } : null;
-}
-
-/**
  * Encode one wire event as an SSE frame.
  * @param event the typed event payload
  * @returns a `data: {...}\n\n` frame string
@@ -98,7 +86,6 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
   const { message, history } = parsedBody.data;
-  const searchConfig = readSearchConfig(request);
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -106,7 +93,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       const send = (event: ChatEvent): void =>
         controller.enqueue(encoder.encode(sseFrame(event)));
       try {
-        const routing = await routeMessage(config, message, history, searchConfig);
+        const routing = await routeMessage(config, message, history);
         if (routing.skill === "prospect" && routing.url) {
           send({
             type: "phase",
@@ -117,7 +104,6 @@ export async function POST(request: NextRequest): Promise<Response> {
             config,
             routing.url,
             send,
-            searchConfig,
             routing.sellingContext,
           );
           send({
@@ -144,11 +130,6 @@ export async function POST(request: NextRequest): Promise<Response> {
               type: "token",
               text: 'Tell me what you sell (e.g. "we sell payroll software for mid-market companies") and I can find and rank the best-fit companies for it.',
             });
-          } else if (!routing.candidates?.length && !searchConfig) {
-            send({
-              type: "token",
-              text: "Finding prospects without naming any companies needs a web-search API key - add one in Settings, or name a few candidate companies directly.",
-            });
           } else {
             send({
               type: "phase",
@@ -160,7 +141,6 @@ export async function POST(request: NextRequest): Promise<Response> {
               routing.sellingContext,
               routing.candidates,
               send,
-              searchConfig,
             );
             send({
               type: "report",
@@ -190,7 +170,6 @@ export async function POST(request: NextRequest): Promise<Response> {
             routing.url,
             routing.entity ?? null,
             send,
-            searchConfig,
             routing.sellingContext,
           );
           send({

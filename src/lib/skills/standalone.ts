@@ -14,11 +14,6 @@ import { findContacts } from "@/lib/extract/contact-finder";
 import { fetchWithVariants } from "@/lib/extract/fetch-page";
 import { htmlToText } from "@/lib/extract/html-to-text";
 import { scoreBant, type ProspectSignals } from "@/lib/scoring/lead-scorer";
-import {
-  formatSignalsBriefing,
-  searchCompanySignals,
-  type SearchConfig,
-} from "@/lib/search/volc-search";
 import { NOT_PUBLICLY_AVAILABLE } from "@/lib/constants";
 
 export type StandaloneSkillName = "research" | "qualify" | "contacts" | "outreach";
@@ -94,7 +89,6 @@ ${EVIDENCE_RULES}`,
  * @param url prospect URL when available, else null
  * @param entity company or person name for outreach
  * @param emit progress callback
- * @param searchConfig optional web-search credentials
  * @param sellingContext optional description of the seller's product/ICP
  * @returns the full markdown deliverable and its title
  */
@@ -104,7 +98,6 @@ export async function runStandaloneSkill(
   url: string | null,
   entity: string | null,
   emit: EmitCallback,
-  searchConfig: SearchConfig | null = null,
   sellingContext: string | null = null,
 ): Promise<{ markdown: string; title: string }> {
   const skill = STANDALONE_SKILLS.find((candidate) => candidate.name === skillName);
@@ -122,12 +115,6 @@ verify as "${NOT_PUBLICLY_AVAILABLE}" rather than guessing.`;
     const contacts = findContacts(page.html);
     const signals = buildSignals(extraction, contacts);
     const bant = skill.name === "qualify" ? scoreBant(signals) : null;
-    let thirdPartySignals = "";
-    if (searchConfig && extraction.companyName) {
-      thirdPartySignals = formatSignalsBriefing(
-        await searchCompanySignals(searchConfig, extraction.companyName),
-      );
-    }
     grounding = `Discovery briefing for ${page.url}:
 - Company: ${extraction.companyName ?? NOT_PUBLICLY_AVAILABLE}
 - Title/description: ${extraction.title ?? "-"} / ${extraction.description ?? "-"}
@@ -150,7 +137,7 @@ ${
         .map((dimension) => `- ${dimension.name}: ${dimension.score}/25 (${dimension.evidence})`)
         .join("\n")}`
     : ""
-}${thirdPartySignals}`;
+}`;
     title = extraction.companyName ?? page.url;
   }
 

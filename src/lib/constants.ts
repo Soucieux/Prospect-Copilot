@@ -8,11 +8,6 @@ export const LLM_BASE_URL_HEADER = "x-llm-base-url";
 export const LLM_API_KEY_HEADER = "x-llm-api-key";
 export const LLM_MODEL_HEADER = "x-llm-model";
 
-/** Volcengine web search (联网搜索) endpoint and per-request BYOK header. */
-export const SEARCH_API_URL =
-  "https://open.feedcoopapi.com/search_api/global_search";
-export const SEARCH_API_KEY_HEADER = "x-search-api-key";
-
 /** localStorage key for the persisted settings object. */
 export const SETTINGS_STORAGE_KEY = "prospect-copilot:settings";
 
