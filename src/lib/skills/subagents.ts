@@ -22,7 +22,7 @@ export interface SubagentDefinition {
   systemPrompt: string;
 }
 
-const NEVER_FABRICATE_RULES = `
+export const NEVER_FABRICATE_RULES = `
 Rules you must follow without exception:
 - NEVER fabricate a name, number, or claim. If data is absent, say "${NOT_PUBLICLY_AVAILABLE}" and score lower.
 - Every finding must cite its evidence: the page it came from, or the search signal behind it.
@@ -30,7 +30,7 @@ Rules you must follow without exception:
 - Score honestly. A mediocre prospect gets a mediocre score. No grade inflation.
 - Your score is 0-100 where 50 is neutral/unknown.`;
 
-const OUTPUT_CONTRACT = `
+export const OUTPUT_CONTRACT = `
 Respond with ONLY a JSON object of this exact shape:
 {
   "score": <number 0-100>,
