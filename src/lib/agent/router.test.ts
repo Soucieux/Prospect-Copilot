@@ -23,6 +23,21 @@ function stubRouterResponse(json: Record<string, unknown>): void {
   );
 }
 
+/** Stub the chat-completions endpoint with a different reply per call, in order. */
+function stubSequentialResponses(contents: string[]): void {
+  let call = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      const content = contents[call] ?? contents[contents.length - 1];
+      call += 1;
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content } }] }),
+      );
+    }),
+  );
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -169,5 +184,43 @@ describe("routeMessage", () => {
       "Acme Corp",
       "https://globex.example.com",
     ]);
+  });
+
+  it("resolves an entity to a URL via an LLM guess when none is given", async () => {
+    stubSequentialResponses([
+      JSON.stringify({
+        skill: "prospect",
+        url: null,
+        entity: "Acme Analytics",
+        sellingContext: null,
+        candidates: null,
+      }),
+      "https://acme.example.com",
+    ]);
+    const result = await routeMessage(
+      CONFIG,
+      "analyze Acme Analytics as a prospect",
+      [],
+    );
+    expect(result.url).toBe("https://acme.example.com/");
+  });
+
+  it("leaves url null when the LLM can't guess it", async () => {
+    stubSequentialResponses([
+      JSON.stringify({
+        skill: "prospect",
+        url: null,
+        entity: "Some Obscure Startup",
+        sellingContext: null,
+        candidates: null,
+      }),
+      "unknown",
+    ]);
+    const result = await routeMessage(
+      CONFIG,
+      "analyze Some Obscure Startup as a prospect",
+      [],
+    );
+    expect(result.url).toBeNull();
   });
 });

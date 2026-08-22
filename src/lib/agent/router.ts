@@ -5,7 +5,7 @@
 
 import { chatCompletion, extractJsonObject, type LlmConfig } from "@/lib/llm";
 import { ROUTER_RESULT_SCHEMA, type RouterResult } from "@/lib/agent/schemas";
-import { searchWeb, type SearchConfig } from "@/lib/search/volc-search";
+import { normalizeUrl } from "@/lib/extract/fetch-page";
 
 const ROUTER_SYSTEM_PROMPT = `You classify user messages for a sales intelligence assistant.
 Available skills:
@@ -49,7 +49,6 @@ export async function routeMessage(
   config: LlmConfig,
   message: string,
   history: { role: "user" | "assistant"; content: string }[] = [],
-  searchConfig: SearchConfig | null = null,
 ): Promise<RouterResult> {
   const raw = await chatCompletion(
     config,
@@ -68,8 +67,8 @@ export async function routeMessage(
   } catch {
     return NONE_RESULT;
   }
-  if (!routing.url && routing.entity && searchConfig) {
-    const resolved = await resolveCompanyUrl(searchConfig, routing.entity);
+  if (!routing.url && routing.entity) {
+    const resolved = await resolveCompanyUrl(config, routing.entity);
     if (resolved) return { ...routing, url: resolved };
   }
   return routing;
@@ -93,20 +92,36 @@ export function isLikelyCompanyUrl(url: string): boolean {
   }
 }
 
+const URL_GUESS_SYSTEM_PROMPT = `You help resolve a company or person's name to their official website.
+Respond with ONLY the URL in https:// form, and nothing else - no explanation.
+If you do not know a real, specific URL for this name, respond with exactly
+"unknown" rather than guessing a plausible-looking one.`;
+
 /**
- * Resolve a company name to its official website via web search.
- * @param searchConfig search credentials
+ * Resolve a company name to its official website by asking the LLM directly.
+ * The guess is never trusted blindly - callers fetch it before using it, so a
+ * wrong or unknown answer just means no page to work from, not a bad report.
+ * @param config LLM credentials
  * @param entity the company name to resolve
- * @returns the best candidate URL, or null when search finds nothing
+ * @returns the guessed URL, or null when unknown/unparseable/not company-like
  */
 export async function resolveCompanyUrl(
-  searchConfig: SearchConfig,
+  config: LlmConfig,
   entity: string,
 ): Promise<string | null> {
   try {
-    const results = await searchWeb(searchConfig, `${entity} official website`, 3);
-    const hit = results.find((result) => isLikelyCompanyUrl(result.url));
-    return hit?.url ?? null;
+    const raw = await chatCompletion(
+      config,
+      [
+        { role: "system", content: URL_GUESS_SYSTEM_PROMPT },
+        { role: "user", content: entity },
+      ],
+      { temperature: 0 },
+    );
+    const candidate = raw.trim().replace(/^["'`]+|["'`]+$/g, "");
+    if (!candidate || candidate.toLowerCase() === "unknown") return null;
+    const url = normalizeUrl(candidate).toString();
+    return isLikelyCompanyUrl(url) ? url : null;
   } catch {
     return null;
   }
