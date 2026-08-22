@@ -11,6 +11,7 @@ Built with Next.js (App Router) + TypeScript, powered by any OpenAI-compatible L
 3. Standalone skills (**research / qualify / contacts / outreach**) run light discovery when a URL is given, then stream their markdown deliverable.
 4. **Match** runs the other direction: describe what you sell (with zero or several companies named, instead of one) and it finds/ranks candidates instead of auditing a single target - see "Finding prospects for a product" below.
 5. Every report renders fully in-app (no file download); conversations persist in your browser's IndexedDB.
+6. Every reply - plain chat, full audits, standalone skills, and match cards alike - is written in whatever language you write in, not English by default.
 
 Bring your own key: the API key is stored in `localStorage` in *your* browser only and sent per-request as a header. It is never written to disk server-side and never logged.
 
@@ -34,9 +35,11 @@ configure, no repeating it. If no product has been mentioned yet, reports
 carry a one-line prompt asking what you sell, so you know how to unlock the
 sharper scoring next time.
 
-The ranked list from `match` renders as clickable cards (company, score, and
-a one-line reason) - a fast, single LLM call per candidate, not the full
-five-subagent audit. Click any card to run the full audit on that company.
+The ranked list from `match` renders as clickable cards: company name, score,
+location/founding date when the page's own structured data has them, a
+factual description of what the company does, and a separate fit judgment -
+a fast, single LLM call per candidate, not the full five-subagent audit.
+Click any card to run the full audit on that company.
 Discovery mode (naming no companies) asks the same LLM to suggest candidates
 directly from its own knowledge - there is no separate search API. Every
 suggested company still gets its homepage fetched and scored like any other
