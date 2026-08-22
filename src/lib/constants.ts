@@ -17,3 +17,7 @@ export const EVENT_ERROR = "error";
 
 /** Standard label for missing/unverified discovery data across reports and prompts. */
 export const NOT_PUBLICLY_AVAILABLE = "Not publicly available";
+
+/** Appended to every user-facing prompt so replies match the user's language. */
+export const RESPOND_IN_USER_LANGUAGE =
+  "Respond in the same language the user is writing in, detected from their message - never default to English unless they wrote in English.";

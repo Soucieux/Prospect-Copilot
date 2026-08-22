@@ -6,6 +6,7 @@ import {
   LLM_API_KEY_HEADER,
   LLM_BASE_URL_HEADER,
   LLM_MODEL_HEADER,
+  RESPOND_IN_USER_LANGUAGE,
 } from "@/lib/constants";
 import { LlmError, streamChatCompletion, type LlmConfig } from "@/lib/llm";
 import { routeMessage } from "@/lib/agent/router";
@@ -33,8 +34,8 @@ const REQUEST_SCHEMA = z.object({
     .default([]),
 });
 
-const PLAIN_CHAT_SYSTEM_PROMPT =
-  "You are a helpful sales intelligence assistant. Answer concisely and practically.";
+const PLAIN_CHAT_SYSTEM_PROMPT = `You are a helpful sales intelligence assistant. Answer concisely and practically.
+${RESPOND_IN_USER_LANGUAGE}`;
 
 /**
  * Extract the per-request BYOK LLM config from headers.

@@ -32,7 +32,10 @@ import { analyzeProspect } from "@/lib/extract/analyze-prospect";
 import { findContacts, type ContactCandidate } from "@/lib/extract/contact-finder";
 import { fetchPage, fetchWithVariants } from "@/lib/extract/fetch-page";
 import { htmlToText } from "@/lib/extract/html-to-text";
-import { NOT_PUBLICLY_AVAILABLE } from "@/lib/constants";
+import {
+  NOT_PUBLICLY_AVAILABLE,
+  RESPOND_IN_USER_LANGUAGE,
+} from "@/lib/constants";
 
 const SUBPAGE_PATTERNS: { name: string; pattern: RegExp }[] = [
   { name: "about", pattern: /\/(about|company|about-us)(\/|$)/i },
@@ -328,7 +331,7 @@ async function runSynthesis(
   const messages: LlmMessage[] = [
     {
       role: "system",
-      content: `You are the synthesis writer of a sales intelligence report. You receive a discovery briefing, five subagent verdicts, and a deterministic composite score. Write the narrative sections with absolute fidelity to the evidence: never invent facts, people, numbers, or events. The first email must be copy-paste ready, under 100 words, one low-friction CTA framed as a question, personalized with real data from the briefing. When the top contact is unknown, address it to the most plausible role and mark it clearly as unverified. When a WHAT WE SELL line is given in the user message, tailor the pitch and CTA specifically to that offering; when it is absent, keep the email focused on the prospect's own situation and do not invent or assume a specific product.
+      content: `You are the synthesis writer of a sales intelligence report. You receive a discovery briefing, five subagent verdicts, and a deterministic composite score. Write the narrative sections with absolute fidelity to the evidence: never invent facts, people, numbers, or events. The first email must be copy-paste ready, under 100 words, one low-friction CTA framed as a question, personalized with real data from the briefing. When the top contact is unknown, address it to the most plausible role and mark it clearly as unverified. When a WHAT WE SELL line is given in the user message, tailor the pitch and CTA specifically to that offering; when it is absent, keep the email focused on the prospect's own situation and do not invent or assume a specific product. ${RESPOND_IN_USER_LANGUAGE}
 
 Respond with ONLY JSON of this shape:
 {

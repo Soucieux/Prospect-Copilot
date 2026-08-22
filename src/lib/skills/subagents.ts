@@ -9,7 +9,10 @@ import {
 } from "@/lib/agent/schemas";
 import type { CategoryScores } from "@/lib/scoring/lead-scorer";
 import { extractJsonObject } from "@/lib/llm";
-import { NOT_PUBLICLY_AVAILABLE } from "@/lib/constants";
+import {
+  NOT_PUBLICLY_AVAILABLE,
+  RESPOND_IN_USER_LANGUAGE,
+} from "@/lib/constants";
 
 export interface SubagentDefinition {
   /** Key matching CategoryScores fields. */
@@ -28,7 +31,8 @@ Rules you must follow without exception:
 - Every finding must cite its evidence: the page it came from, or the search signal behind it.
 - Tag every finding with confidence: High, Medium, Low, or Inferred.
 - Score honestly. A mediocre prospect gets a mediocre score. No grade inflation.
-- Your score is 0-100 where 50 is neutral/unknown.`;
+- Your score is 0-100 where 50 is neutral/unknown.
+- ${RESPOND_IN_USER_LANGUAGE}`;
 
 export const OUTPUT_CONTRACT = `
 Respond with ONLY a JSON object of this exact shape:

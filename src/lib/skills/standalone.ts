@@ -14,7 +14,10 @@ import { findContacts } from "@/lib/extract/contact-finder";
 import { fetchWithVariants } from "@/lib/extract/fetch-page";
 import { htmlToText } from "@/lib/extract/html-to-text";
 import { scoreBant, type ProspectSignals } from "@/lib/scoring/lead-scorer";
-import { NOT_PUBLICLY_AVAILABLE } from "@/lib/constants";
+import {
+  NOT_PUBLICLY_AVAILABLE,
+  RESPOND_IN_USER_LANGUAGE,
+} from "@/lib/constants";
 
 export type StandaloneSkillName = "research" | "qualify" | "contacts" | "outreach";
 
@@ -33,7 +36,8 @@ const EVIDENCE_RULES = `
 Rules:
 - NEVER fabricate names, numbers, or claims. Missing data is "${NOT_PUBLICLY_AVAILABLE}" and lowers any assessment.
 - Cite the page or signal behind every factual line.
-- Output clean GitHub-flavored markdown with clear section headers. No preamble, no closing chatter.`;
+- Output clean GitHub-flavored markdown with clear section headers. No preamble, no closing chatter.
+- ${RESPOND_IN_USER_LANGUAGE}`;
 
 export const STANDALONE_SKILLS: StandaloneSkill[] = [
   {
