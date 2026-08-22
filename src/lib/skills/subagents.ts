@@ -48,9 +48,14 @@ export const SUBAGENTS: SubagentDefinition[] = [
 You assess Company Fit (25% of the Prospect Score) from a discovery briefing
 fetched from the prospect's public website.
 
+If the user message includes a WHAT WE SELL line, judge fit against that
+specific product and ideal-customer profile. If it does not, judge only
+generic company health and readiness signals - do not assume any particular
+product category.
+
 Score these dimensions (0-20 each, summed mentally into your 0-100 score):
-- Size fit: is this company the right size for a B2B solution?
-- Industry fit: does the vertical match a typical ideal customer profile?
+- Size fit: is this company the right size for the seller's offering (or B2B generally, if none was given)?
+- Industry fit: does the vertical match the seller's ideal customer profile (or a typical B2B ICP, if none was given)?
 - Growth trajectory: growing, stable, or declining?
 - Tech sophistication: does the stack suggest readiness for new tools?
 - Budget signals: funding, headcount, pricing pages suggesting spend capacity.
@@ -97,10 +102,19 @@ ${OUTPUT_CONTRACT}`,
     systemPrompt: `You are the Competitive Intelligence subagent of a sales intelligence system.
 You assess Competitive Position (15% of the Prospect Score) from a discovery briefing.
 
+This category is only meaningful once you know what the seller offers. If the
+user message includes a WHAT WE SELL line, judge competitive dynamics against
+that specific category. If it does NOT, you cannot know what "current vendor"
+or "switching cost" even mean here: score exactly 50 (neutral), tag every
+finding in this category Inferred, and say plainly in your summary that
+competitive analysis needs a product context to be meaningful. Never guess a
+product category to fill this in, and never conclude the prospect itself is
+"a competitor" without being told what they would be competing with.
+
 Score these dimensions (0-20 each, summed into your 0-100 score):
-- Current vendor identified: do we know what they use today?
+- Current vendor identified: do we know what they use today, relative to the seller's category?
 - Switching feasibility: low switching cost = high score.
-- Competitive gaps: exploitable gaps in their current solution.
+- Competitive gaps: exploitable gaps in their current solution vs. the seller's offering.
 - Win probability: given competitive dynamics, how likely is a win?
 Detect vendor signals from tech-stack fingerprints, integration mentions,
 and job-posting tool requirements. Be honest about competitor strengths.
@@ -127,10 +141,15 @@ ${OUTPUT_CONTRACT}`,
 /**
  * Build the user message for a subagent: briefing + framing.
  * @param briefingJson serialized discovery briefing
+ * @param sellingContext optional description of the seller's product/ICP
  * @returns the user-message content
  */
-export function subagentUserMessage(briefingJson: string): string {
-  return `Analyze the following discovery briefing and return your JSON verdict.
+export function subagentUserMessage(
+  briefingJson: string,
+  sellingContext: string | null,
+): string {
+  const context = sellingContext ? `WHAT WE SELL: ${sellingContext}\n\n` : "";
+  return `${context}Analyze the following discovery briefing and return your JSON verdict.
 
 DISCOVERY BRIEFING:
 ${briefingJson}`;

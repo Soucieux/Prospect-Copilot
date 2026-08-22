@@ -48,7 +48,10 @@ export const STANDALONE_SKILLS: StandaloneSkill[] = [
 Produce COMPANY-RESEARCH.md: company overview, business model, product and
 technology, market position, growth signals, and a Company Fit assessment
 across size/industry/growth/tech/budget (0-20 each) with a short justification
-per dimension. Finish with a "Next actions" list of 3 concrete steps.
+per dimension. When a WHAT WE SELL line is given in the input, ground the
+Company Fit assessment and Next Actions in that specific offering; when it is
+absent, assess only generic B2B fit and do not assume a product category.
+Finish with a "Next actions" list of 3 concrete steps.
 ${EVIDENCE_RULES}`,
   },
   {
@@ -91,6 +94,8 @@ ${EVIDENCE_RULES}`,
  * @param url prospect URL when available, else null
  * @param entity company or person name for outreach
  * @param emit progress callback
+ * @param searchConfig optional web-search credentials
+ * @param sellingContext optional description of the seller's product/ICP
  * @returns the full markdown deliverable and its title
  */
 export async function runStandaloneSkill(
@@ -100,6 +105,7 @@ export async function runStandaloneSkill(
   entity: string | null,
   emit: EmitCallback,
   searchConfig: SearchConfig | null = null,
+  sellingContext: string | null = null,
 ): Promise<{ markdown: string; title: string }> {
   const skill = STANDALONE_SKILLS.find((candidate) => candidate.name === skillName);
   if (!skill) throw new Error(`Unknown standalone skill: ${skillName}`);
@@ -154,17 +160,28 @@ ${
     detail: `Running the ${skill.name} skill`,
   });
 
+  const userContent = sellingContext
+    ? `WHAT WE SELL: ${sellingContext}\n\n${grounding}`
+    : grounding;
+
   let markdown = "";
   for await (const delta of streamChatCompletion(
     config,
     [
       { role: "system", content: skill.systemPrompt },
-      { role: "user", content: grounding },
+      { role: "user", content: userContent },
     ],
     { temperature: 0.3 },
   )) {
     markdown += delta;
     emit({ type: "token", text: delta });
+  }
+
+  if (skill.name === "research" && !sellingContext) {
+    const nudge =
+      '\n\n---\n\n> Tell me what you sell (e.g. "we sell payroll software for mid-market companies") and I\'ll sharpen the Company Fit assessment on your next request.\n';
+    markdown += nudge;
+    emit({ type: "token", text: nudge });
   }
 
   emit({ type: "phase", phase: "done", detail: `${skill.name} complete` });

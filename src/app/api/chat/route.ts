@@ -105,7 +105,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       const send = (event: ChatEvent): void =>
         controller.enqueue(encoder.encode(sseFrame(event)));
       try {
-        const routing = await routeMessage(config, message, searchConfig);
+        const routing = await routeMessage(config, message, history, searchConfig);
         if (routing.skill === "prospect" && routing.url) {
           send({
             type: "phase",
@@ -117,6 +117,7 @@ export async function POST(request: NextRequest): Promise<Response> {
             routing.url,
             send,
             searchConfig,
+            routing.sellingContext,
           );
           send({
             type: "report",
@@ -149,6 +150,7 @@ export async function POST(request: NextRequest): Promise<Response> {
             routing.entity ?? null,
             send,
             searchConfig,
+            routing.sellingContext,
           );
           send({
             type: "report",

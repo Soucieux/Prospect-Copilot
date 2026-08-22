@@ -90,6 +90,9 @@ interface DiscoveryBriefing {
  * @param config LLM credentials
  * @param rawUrl the prospect URL from the router
  * @param emit progress callback (phase/agent events)
+ * @param searchConfig optional web-search credentials
+ * @param sellingContext optional description of the seller's product/ICP,
+ *   used to ground company-fit and competitive scoring
  * @returns final report markdown plus the structured score fields
  * @throws Error when the URL is entirely unreachable
  */
@@ -98,6 +101,7 @@ export async function runProspectPipeline(
   rawUrl: string,
   emit: EmitFn,
   searchConfig: SearchConfig | null = null,
+  sellingContext: string | null = null,
 ): Promise<{
   markdown: string;
   composite: ProspectComposite;
@@ -162,7 +166,7 @@ export async function runProspectPipeline(
   };
 
   emit({ type: "phase", phase: "analysis", detail: "Launching 5 parallel analysis agents" });
-  const results = await runSubagents(config, briefing, emit);
+  const results = await runSubagents(config, briefing, emit, sellingContext);
 
   const scores: CategoryScores = {};
   for (const [index, settled] of results.entries()) {
@@ -180,7 +184,7 @@ export async function runProspectPipeline(
   });
   let synthesis: SynthesisResult;
   try {
-    synthesis = await runSynthesis(config, briefing, results, composite);
+    synthesis = await runSynthesis(config, briefing, results, composite, sellingContext);
   } catch {
     emit({
       type: "phase",
@@ -196,6 +200,7 @@ export async function runProspectPipeline(
     composite,
     synthesis,
     scoreBant(buildSignals(briefing, contacts)),
+    sellingContext,
   );
 
   return {
@@ -274,15 +279,17 @@ function extractContacts(
  * @param config LLM credentials
  * @param briefing the discovery briefing
  * @param emit progress callback
+ * @param sellingContext optional description of the seller's product/ICP
  * @returns settled results in SUBAGENTS order
  */
 async function runSubagents(
   config: LlmConfig,
   briefing: DiscoveryBriefing,
   emit: EmitFn,
+  sellingContext: string | null,
 ): Promise<PromiseSettledResult<SubagentResult>[]> {
   const briefingJson = JSON.stringify(briefing);
-  const userMessage = subagentUserMessage(briefingJson);
+  const userMessage = subagentUserMessage(briefingJson, sellingContext);
   const jobs = SUBAGENTS.map((definition) => {
     emit({ type: "agent", agent: definition.name, status: "running" });
     return chatCompletion(
@@ -324,6 +331,7 @@ async function runSubagents(
  * @param briefing discovery briefing
  * @param results settled subagent results
  * @param composite deterministic composite score
+ * @param sellingContext optional description of the seller's product/ICP
  * @returns validated synthesis sections
  */
 async function runSynthesis(
@@ -331,6 +339,7 @@ async function runSynthesis(
   briefing: DiscoveryBriefing,
   results: PromiseSettledResult<SubagentResult>[],
   composite: ProspectComposite,
+  sellingContext: string | null,
 ): Promise<SynthesisResult> {
   const agentSummaries = SUBAGENTS.map((definition, index) => {
     const settled = results[index];
@@ -344,7 +353,7 @@ async function runSynthesis(
   const messages: LlmMessage[] = [
     {
       role: "system",
-      content: `You are the synthesis writer of a sales intelligence report. You receive a discovery briefing, five subagent verdicts, and a deterministic composite score. Write the narrative sections with absolute fidelity to the evidence: never invent facts, people, numbers, or events. The first email must be copy-paste ready, under 100 words, one low-friction CTA framed as a question, personalized with real data from the briefing. When the top contact is unknown, address it to the most plausible role and mark it clearly as unverified.
+      content: `You are the synthesis writer of a sales intelligence report. You receive a discovery briefing, five subagent verdicts, and a deterministic composite score. Write the narrative sections with absolute fidelity to the evidence: never invent facts, people, numbers, or events. The first email must be copy-paste ready, under 100 words, one low-friction CTA framed as a question, personalized with real data from the briefing. When the top contact is unknown, address it to the most plausible role and mark it clearly as unverified. When a WHAT WE SELL line is given in the user message, tailor the pitch and CTA specifically to that offering; when it is absent, keep the email focused on the prospect's own situation and do not invent or assume a specific product.
 
 Respond with ONLY JSON of this shape:
 {
@@ -357,7 +366,7 @@ Respond with ONLY JSON of this shape:
       role: "user",
       content: `COMPOSITE SCORE: ${composite.score}/100 (${composite.grade}, confidence ${composite.confidence})
 COMPANY: ${briefing.companyName ?? "Unknown"} - ${briefing.url}
-TOP CONTACT: ${topContact ? `${topContact.name}, ${topContact.title ?? "title unknown"}` : "none found"}
+${sellingContext ? `WHAT WE SELL: ${sellingContext}\n` : ""}TOP CONTACT: ${topContact ? `${topContact.name}, ${topContact.title ?? "title unknown"}` : "none found"}
 SUBAGENT VERDICTS:
 ${agentSummaries}
 
@@ -448,6 +457,7 @@ function buildSignals(
  * @param composite deterministic composite
  * @param synthesis LLM narrative sections
  * @param bant deterministic BANT result
+ * @param sellingContext seller's product/ICP, when known
  * @returns the full report markdown
  */
 function assembleReport(
@@ -456,6 +466,7 @@ function assembleReport(
   composite: ProspectComposite,
   synthesis: SynthesisResult,
   bant: ReturnType<typeof scoreBant>,
+  sellingContext: string | null,
 ): string {
   const today = new Date().toISOString().slice(0, 10);
   const lines: string[] = [
@@ -555,6 +566,14 @@ function assembleReport(
       "---",
       "",
       `> Note: ${composite.degradedCategories.join(", ")} analysis was degraded; confidence reduced accordingly.`,
+      "",
+    );
+  }
+  if (!sellingContext) {
+    lines.push(
+      "---",
+      "",
+      "> Tell me what you sell (e.g. \"we sell payroll software for mid-market companies\") and I'll sharpen the Company Fit and Competitive Position scoring on your next request.",
       "",
     );
   }
