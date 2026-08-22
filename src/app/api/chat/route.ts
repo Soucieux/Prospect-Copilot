@@ -15,6 +15,7 @@ import {
   runStandaloneSkill,
   type StandaloneSkillName,
 } from "@/lib/skills/standalone";
+import { runMatchSkill } from "@/lib/skills/match";
 import type { SearchConfig } from "@/lib/search/volc-search";
 import type { ChatEvent } from "@/lib/agent/schemas";
 
@@ -136,6 +137,44 @@ export async function POST(request: NextRequest): Promise<Response> {
               markdown: outcome.markdown,
             },
           });
+        } else if (routing.skill === "match") {
+          if (!routing.sellingContext && !routing.candidates?.length) {
+            send({
+              type: "token",
+              text: 'Tell me what you sell (e.g. "we sell payroll software for mid-market companies") and I can find and rank the best-fit companies for it.',
+            });
+          } else if (!routing.candidates?.length && !searchConfig) {
+            send({
+              type: "token",
+              text: "Finding prospects without naming any companies needs a web-search API key - add one in Settings, or name a few candidate companies directly.",
+            });
+          } else {
+            send({
+              type: "phase",
+              phase: "routing",
+              detail: "Matched the match skill - finding candidate prospects",
+            });
+            const { markdown, title } = await runMatchSkill(
+              config,
+              routing.sellingContext,
+              routing.candidates,
+              send,
+              searchConfig,
+            );
+            send({
+              type: "report",
+              report: {
+                kind: "match",
+                companyName: title,
+                url: null,
+                score: null,
+                grade: null,
+                confidence: null,
+                categories: null,
+                markdown,
+              },
+            });
+          }
         } else if (routing.skill !== "none" && routing.skill !== "prospect") {
           const skill = routing.skill as StandaloneSkillName;
           send({
