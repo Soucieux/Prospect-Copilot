@@ -12,6 +12,7 @@ import {
 } from "@/lib/constants";
 import type {
   ChatMessage,
+  MatchCandidate,
   ProgressEvent,
   ReportState,
 } from "@/lib/chat-types";
@@ -120,10 +121,12 @@ export default function Home() {
   );
 
   /**
-   * Send the current conversation to /api/chat and consume the event stream.
+   * Send a message to /api/chat and consume the event stream.
+   * @param overrideText message to send instead of the composer's input,
+   *   used when a match candidate card triggers a follow-up audit
    */
-  async function send(): Promise<void> {
-    const text = input.trim();
+  async function send(overrideText?: string): Promise<void> {
+    const text = (overrideText ?? input).trim();
     if (!text || isStreaming) return;
     if (!settings.apiKey) {
       setError("Add your DeepSeek API key in the settings bar first.");
@@ -308,12 +311,25 @@ export default function Home() {
                     {message.report ? (
                       <Scorecard report={message.report} />
                     ) : null}
-                    <Markdown>{message.content}</Markdown>
+                    {message.report?.kind === "match" &&
+                    message.report.matches &&
+                    message.report.matches.length > 0 ? (
+                      <MatchCandidateCards
+                        candidates={message.report.matches}
+                        disabled={isStreaming}
+                        onSelect={(candidate) =>
+                          void send(`analyze ${candidate.url} as a prospect`)
+                        }
+                      />
+                    ) : (
+                      <Markdown>
+                        {message.report
+                          ? message.report.markdown
+                          : message.content}
+                      </Markdown>
+                    )}
                     {isStreaming && index === messages.length - 1 ? (
                       <span className="streaming-cursor" aria-hidden />
-                    ) : null}
-                    {message.report ? (
-                      <ReportActions report={message.report} />
                     ) : null}
                   </>
                 ) : (
@@ -489,31 +505,42 @@ function bar(score: number): string {
 }
 
 /**
- * Download buttons for the generated report.
- * @param report the structured report payload
+ * Ranked candidate cards for the match skill: title, score, and a one-line
+ * reason up front; clicking one runs a full prospect audit on it.
+ * @param candidates the ranked candidates to show
+ * @param disabled true while another request is streaming
+ * @param onSelect called with the clicked candidate
  */
-function ReportActions({ report }: ReportSectionProps): JSX.Element {
-  /**
-   * Download the report markdown as a .md file.
-   */
-  function download(): void {
-    const blob = new Blob([report.markdown], {
-      type: "text/markdown;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${report.kind.toUpperCase()}-${report.companyName
-      .replace(/[^a-z0-9]+/gi, "-")
-      .toLowerCase()}.md`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-  }
+function MatchCandidateCards({
+  candidates,
+  disabled,
+  onSelect,
+}: {
+  candidates: MatchCandidate[];
+  disabled: boolean;
+  onSelect: (candidate: MatchCandidate) => void;
+}): JSX.Element {
   return (
-    <div className="report-actions">
-      <button className="secondary" onClick={download}>
-        Download report (.md)
-      </button>
+    <div className="match-cards">
+      {candidates.map((candidate) => (
+        <button
+          key={candidate.url}
+          className="match-card"
+          disabled={disabled}
+          onClick={() => onSelect(candidate)}
+        >
+          <div className="match-card-head">
+            <strong className="match-card-title">
+              {candidate.companyName}
+            </strong>
+            <span className="match-card-score">{candidate.score}/100</span>
+          </div>
+          <p className="match-card-summary">{candidate.summary}</p>
+          <span className="match-card-hint">
+            Click for a full prospect audit →
+          </span>
+        </button>
+      ))}
     </div>
   );
 }

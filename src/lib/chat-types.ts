@@ -11,14 +11,23 @@ export interface ProgressEvent {
   score?: number;
 }
 
+export interface MatchCandidate {
+  url: string;
+  companyName: string;
+  score: number;
+  summary: string;
+}
+
 export interface ReportState {
-  kind: "prospect" | "research" | "qualify" | "contacts" | "outreach";
+  kind: "prospect" | "research" | "qualify" | "contacts" | "outreach" | "match";
   companyName: string;
   url: string | null;
   score: number | null;
   grade: string | null;
   confidence: string | null;
   categories: { category: string; score: number; weight: number }[] | null;
+  /** Populated only for kind "match": the ranked candidates to render as cards. */
+  matches: MatchCandidate[] | null;
   markdown: string;
 }
 

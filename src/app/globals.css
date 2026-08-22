@@ -626,12 +626,61 @@ button.secondary:hover:not(:disabled) {
   font-variant-numeric: tabular-nums;
 }
 
-.report-actions {
-  margin-top: 12px;
+.match-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  margin-top: 4px;
 }
 
-.report-actions button {
-  padding: 7px 14px;
+.match-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.match-card:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  border-color: var(--border-strong);
+}
+
+.match-card:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.match-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.match-card-title {
+  font-size: 14px;
+}
+
+.match-card-score {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.match-card-summary {
+  color: var(--muted);
   font-size: 13px;
-  border-radius: 8px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.match-card-hint {
+  color: var(--muted);
+  font-size: 12px;
 }
