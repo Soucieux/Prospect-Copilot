@@ -12,7 +12,7 @@ import {
 } from "@/lib/llm";
 import {
   SYNTHESIS_SCHEMA,
-  type ChatEvent,
+  type EmitCallback,
   type SubagentResult,
   type SynthesisResult,
 } from "@/lib/agent/schemas";
@@ -38,9 +38,6 @@ import {
   type SearchConfig,
 } from "@/lib/search/volc-search";
 import { NOT_PUBLICLY_AVAILABLE } from "@/lib/constants";
-
-/** Callback used to stream progress events to the client. */
-export type EmitFn = (event: ChatEvent) => void;
 
 const SUBPAGE_PATTERNS: { name: string; pattern: RegExp }[] = [
   { name: "about", pattern: /\/(about|company|about-us)(\/|$)/i },
@@ -99,7 +96,7 @@ interface DiscoveryBriefing {
 export async function runProspectPipeline(
   config: LlmConfig,
   rawUrl: string,
-  emit: EmitFn,
+  emit: EmitCallback,
   searchConfig: SearchConfig | null = null,
   sellingContext: string | null = null,
 ): Promise<{
@@ -285,7 +282,7 @@ function extractContacts(
 async function runSubagents(
   config: LlmConfig,
   briefing: DiscoveryBriefing,
-  emit: EmitFn,
+  emit: EmitCallback,
   sellingContext: string | null,
 ): Promise<PromiseSettledResult<SubagentResult>[]> {
   const briefingJson = JSON.stringify(briefing);

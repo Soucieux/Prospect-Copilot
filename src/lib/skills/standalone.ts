@@ -8,7 +8,7 @@ import {
   streamChatCompletion,
   type LlmConfig,
 } from "@/lib/llm";
-import type { ChatEvent } from "@/lib/agent/schemas";
+import type { EmitCallback } from "@/lib/agent/schemas";
 import { analyzeProspect } from "@/lib/extract/analyze-prospect";
 import { findContacts } from "@/lib/extract/contact-finder";
 import { fetchWithVariants } from "@/lib/extract/fetch-page";
@@ -187,8 +187,6 @@ ${
   emit({ type: "phase", phase: "done", detail: `${skill.name} complete` });
   return { markdown, title };
 }
-
-type EmitCallback = (event: ChatEvent) => void;
 
 /**
  * Build deterministic signals from an extraction and contacts.
