@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { analyzeProspect, detectTechStack } from "./analyze-prospect";
+import {
+  analyzeProspect,
+  detectTechStack,
+  parseEmployeeCount,
+} from "./analyze-prospect";
 
 const PAGE_URL = "https://acme-analytics.example.com";
 
@@ -45,6 +49,16 @@ describe("analyzeProspect", () => {
     expect(result.emails).toContain("hello@acme-analytics.example.com");
   });
 
+  it("normalizes scheme-relative social links", () => {
+    const extracted = analyzeProspect(
+      '<a href="//linkedin.com/company/acme">LinkedIn</a>',
+      PAGE_URL,
+    );
+    expect(extracted.socialProfiles).toEqual([
+      "https://linkedin.com/company/acme",
+    ]);
+  });
+
   it("detects the pricing page and internal links", () => {
     expect(result.hasPricingPage).toBe(true);
     expect(result.pricingPageUrl).toBe(`${PAGE_URL}/pricing`);
@@ -56,5 +70,18 @@ describe("analyzeProspect", () => {
     expect(empty.companyName).toBeNull();
     expect(empty.jsonLdOrg).toBeNull();
     expect(empty.hasPricingPage).toBe(false);
+  });
+});
+
+describe("parseEmployeeCount", () => {
+  it("uses the lower bound of a range instead of joining its digits", () => {
+    expect(parseEmployeeCount("51-200")).toBe(51);
+  });
+
+  it("supports grouped counts and rejects missing or invalid values", () => {
+    expect(parseEmployeeCount("about 1,200 employees")).toBe(1200);
+    expect(parseEmployeeCount(85)).toBe(85);
+    expect(parseEmployeeCount("unknown")).toBeUndefined();
+    expect(parseEmployeeCount(0)).toBeUndefined();
   });
 });

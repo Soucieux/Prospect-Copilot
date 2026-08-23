@@ -29,7 +29,10 @@ import {
   type ProspectComposite,
   type ProspectSignals,
 } from "@/lib/scoring/lead-scorer";
-import { analyzeProspect } from "@/lib/extract/analyze-prospect";
+import {
+  analyzeProspect,
+  parseEmployeeCount,
+} from "@/lib/extract/analyze-prospect";
 import { findContacts, type ContactCandidate } from "@/lib/extract/contact-finder";
 import { fetchPage, fetchWithVariants } from "@/lib/extract/fetch-page";
 import { htmlToText } from "@/lib/extract/html-to-text";
@@ -789,13 +792,9 @@ function buildSignals(
   briefing: DiscoveryBriefing,
   contacts: ContactCandidate[],
 ): ProspectSignals {
-  const employees = briefing.jsonLdOrg?.numberOfEmployees;
-  const employeeCount =
-    typeof employees === "number"
-      ? employees
-      : typeof employees === "string"
-        ? Number.parseInt(employees.replace(/\D/g, ""), 10) || undefined
-        : undefined;
+  const employeeCount = parseEmployeeCount(
+    briefing.jsonLdOrg?.numberOfEmployees,
+  );
   return {
     employeeCount,
     hasPricingPage: briefing.hasPricingPage,

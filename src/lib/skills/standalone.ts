@@ -9,7 +9,10 @@ import {
   type LlmConfig,
 } from "@/lib/llm";
 import type { EmitCallback } from "@/lib/agent/schemas";
-import { analyzeProspect } from "@/lib/extract/analyze-prospect";
+import {
+  analyzeProspect,
+  parseEmployeeCount,
+} from "@/lib/extract/analyze-prospect";
 import { findContacts } from "@/lib/extract/contact-finder";
 import { fetchWithVariants } from "@/lib/extract/fetch-page";
 import { htmlToText } from "@/lib/extract/html-to-text";
@@ -219,13 +222,9 @@ function buildSignals(
   extraction: ReturnType<typeof analyzeProspect>,
   contacts: ReturnType<typeof findContacts>,
 ): ProspectSignals {
-  const employees = extraction.jsonLdOrg?.numberOfEmployees;
-  const employeeCount =
-    typeof employees === "number"
-      ? employees
-      : typeof employees === "string"
-        ? Number.parseInt(employees.replace(/\D/g, ""), 10) || undefined
-        : undefined;
+  const employeeCount = parseEmployeeCount(
+    extraction.jsonLdOrg?.numberOfEmployees,
+  );
   return {
     employeeCount,
     hasPricingPage: extraction.hasPricingPage,

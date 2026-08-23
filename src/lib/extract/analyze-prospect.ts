@@ -75,6 +75,7 @@ export function analyzeProspect(
 ): ProspectExtraction {
   const $ = cheerio.load(html);
   const jsonLdOrg = extractJsonLdOrg($);
+  const pricingPageUrl = findPricingLink($, pageUrl);
   return {
     companyName:
       jsonLdOrg?.name ??
@@ -89,12 +90,32 @@ export function analyzeProspect(
       (email) => !/\.(png|jpe?g|gif|svg|webp)$/i.test(email),
     ),
     phones: uniqueMatches(html, PHONE_PATTERN).slice(0, MAX_PHONES),
-    hasPricingPage: findPricingLink($, pageUrl) !== null,
-    pricingPageUrl: findPricingLink($, pageUrl),
+    hasPricingPage: pricingPageUrl !== null,
+    pricingPageUrl,
     enterpriseTierListed: ENTERPRISE_PATTERN.test(html),
     jsonLdOrg,
     internalLinks: extractInternalLinks($, pageUrl),
   };
+}
+
+/**
+ * Convert a JSON-LD employee count or range into one conservative count.
+ * Range strings use their lower bound so a value such as "51-200" cannot be
+ * inflated into 51,200 by removing punctuation.
+ * @param value JSON-LD number or human-readable count/range
+ * @returns a positive safe integer, or undefined when no count is present
+ */
+export function parseEmployeeCount(
+  value: number | string | undefined,
+): number | undefined {
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+  }
+  if (typeof value !== "string") return undefined;
+  const firstNumber = value.replaceAll(",", "").match(/\d+/)?.[0];
+  if (!firstNumber) return undefined;
+  const parsed = Number.parseInt(firstNumber, 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 /**
@@ -167,7 +188,13 @@ function extractSocials($: cheerio.CheerioAPI): string[] {
   for (const anchor of $("a[href]").toArray()) {
     const href = $(anchor).attr("href") ?? "";
     if (SOCIAL_PATTERNS.some(({ pattern }) => pattern.test(href))) {
-      found.add(href.startsWith("http") ? href : `https://${href}`);
+      found.add(
+        href.startsWith("//")
+          ? `https:${href}`
+          : href.startsWith("http")
+            ? href
+            : `https://${href}`,
+      );
     }
   }
   return [...found].slice(0, MAX_SOCIAL_PROFILES);
