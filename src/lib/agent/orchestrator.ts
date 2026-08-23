@@ -5,13 +5,13 @@
  */
 
 import {
-  chatCompletion,
-  extractJsonObject,
+  structuredChatCompletion,
   type LlmConfig,
   type LlmMessage,
 } from "@/lib/llm";
 import {
   CONFIDENCE_VALUES,
+  SUBAGENT_RESULT_SCHEMA,
   SYNTHESIS_SCHEMA,
   type EmitCallback,
   type SubagentResult,
@@ -19,7 +19,6 @@ import {
 } from "@/lib/agent/schemas";
 import {
   SUBAGENTS,
-  parseSubagentResult,
   subagentUserMessage,
 } from "@/lib/skills/subagents";
 import {
@@ -34,7 +33,10 @@ import { analyzeProspect } from "@/lib/extract/analyze-prospect";
 import { findContacts, type ContactCandidate } from "@/lib/extract/contact-finder";
 import { fetchPage, fetchWithVariants } from "@/lib/extract/fetch-page";
 import { htmlToText } from "@/lib/extract/html-to-text";
-import { RESPOND_IN_USER_LANGUAGE } from "@/lib/constants";
+import {
+  RESPOND_IN_USER_LANGUAGE,
+  UNTRUSTED_WEB_CONTENT_RULES,
+} from "@/lib/constants";
 import {
   RUNTIME_LABEL_DEFAULTS,
   formatRuntimeLabel,
@@ -44,6 +46,11 @@ import {
   responseLanguageContext,
   type RuntimeLabels,
 } from "@/lib/localization";
+import {
+  STRUCTURED_LLM_RETRY_OPTIONS,
+  retryOperation,
+} from "@/lib/retry";
+import { runGraphWorkerPool } from "@/lib/graph-worker-pool";
 
 /** A dictionary of short UI labels, English keys mapped to their text. */
 export type LabelSet = Record<string, string>;
@@ -159,7 +166,7 @@ interface BriefingPage {
   text: string;
 }
 
-interface DiscoveryBriefing {
+export interface DiscoveryBriefing {
   url: string;
   companyName: string | null;
   title: string | null;
@@ -177,6 +184,264 @@ interface DiscoveryBriefing {
   } | null;
   pages: BriefingPage[];
   contacts: ContactCandidate[];
+}
+
+/** Settled output from the five fixed prospect-analysis workers. */
+export type ProspectAnalysisResults = PromiseSettledResult<SubagentResult>[];
+
+/** Deterministic scores calculated after prospect analysis completes. */
+export interface ProspectScoreState {
+  composite: ProspectComposite;
+  bant: ReturnType<typeof scoreBant>;
+}
+
+/** Final business result consumed by the workflow report node. */
+export interface ProspectPipelineOutcome {
+  markdown: string;
+  composite: ProspectComposite;
+  companyName: string;
+  url: string;
+  categoryLabels: string[];
+  confidenceLabel: string;
+}
+
+/**
+ * Discover and bound the public company evidence used by later graph stages.
+ * @param rawUrl prospect URL selected by the router
+ * @param emit progress callback
+ * @param runtimeLabels localized progress labels
+ * @param signal cancels page discovery
+ * @returns serializable prospect briefing
+ */
+export async function discoverProspect(
+  rawUrl: string,
+  emit: EmitCallback,
+  runtimeLabels: RuntimeLabels = RUNTIME_LABEL_DEFAULTS,
+  signal?: AbortSignal,
+): Promise<DiscoveryBriefing> {
+  emit({
+    type: "phase",
+    phase: "discovery",
+    detail: formatRuntimeLabel(runtimeLabels.fetchingTemplate, { target: rawUrl }),
+  });
+  const homepage = await fetchWithVariants(rawUrl, signal);
+  const extraction = analyzeProspect(homepage.html, homepage.url);
+
+  emit({
+    type: "phase",
+    phase: "discovery",
+    detail: runtimeLabels.fetchingSubpages,
+  });
+  const subpages = await fetchSubpages(
+    extraction.internalLinks,
+    homepage.url,
+    signal,
+  );
+  const contacts = extractContacts(subpages, homepage.html);
+  emit({
+    type: "phase",
+    phase: "discovery",
+    detail: formatRuntimeLabel(runtimeLabels.discoveryCompleteTemplate, {
+      pages: subpages.length + 1,
+      contacts: contacts.length,
+    }),
+  });
+  return {
+    url: homepage.url,
+    companyName: extraction.companyName,
+    title: extraction.title,
+    description: extraction.description,
+    techStack: extraction.techStack,
+    socialProfiles: extraction.socialProfiles,
+    emails: extraction.emails,
+    hasPricingPage: extraction.hasPricingPage,
+    enterpriseTierListed: extraction.enterpriseTierListed,
+    jsonLdOrg: extraction.jsonLdOrg,
+    pages: [
+      {
+        name: "homepage",
+        url: homepage.url,
+        text: htmlToText(homepage.html).slice(0, PAGE_TEXT_BUDGET),
+      },
+      ...subpages.map((page) => ({
+        name: page.name,
+        url: page.url,
+        text: page.text,
+      })),
+    ],
+    contacts,
+  };
+}
+
+/**
+ * Run the five fixed analysis workers for one discovered prospect.
+ * @param config LLM credentials
+ * @param briefing bounded public company evidence
+ * @param emit progress callback
+ * @param sellingContext optional seller product or ICP
+ * @param requesterMessage latest user message
+ * @param responseLanguage detected response language
+ * @param runtimeLabels localized progress labels
+ * @param signal cancels analysis workers
+ * @returns settled worker outcomes in fixed category order
+ */
+export async function analyzeProspectBriefing(
+  config: LlmConfig,
+  briefing: DiscoveryBriefing,
+  emit: EmitCallback,
+  sellingContext: string | null,
+  requesterMessage: string,
+  responseLanguage: string,
+  runtimeLabels: RuntimeLabels,
+  signal?: AbortSignal,
+): Promise<ProspectAnalysisResults> {
+  emit({
+    type: "phase",
+    phase: "analysis",
+    detail: runtimeLabels.launchingAgents,
+  });
+  return runSubagents(
+    config,
+    briefing,
+    emit,
+    sellingContext,
+    requesterMessage,
+    responseLanguage,
+    runtimeLabels,
+    signal,
+  );
+}
+
+/**
+ * Calculate deterministic composite and BANT scores from completed analysis.
+ * @param briefing bounded discovery evidence
+ * @param results settled analysis results
+ * @returns deterministic score state
+ */
+export function scoreProspectBriefing(
+  briefing: DiscoveryBriefing,
+  results: ProspectAnalysisResults,
+): ProspectScoreState {
+  const scores: CategoryScores = {};
+  for (const [index, settled] of results.entries()) {
+    const definition = SUBAGENTS[index];
+    if (settled.status === "fulfilled") {
+      scores[definition.category] = settled.value.score;
+    }
+  }
+  return {
+    composite: computeProspectScore(scores),
+    bant: scoreBant(buildSignals(briefing, briefing.contacts)),
+  };
+}
+
+/**
+ * Produce the optional localized narrative synthesis for one scored prospect.
+ * @param config LLM credentials
+ * @param briefing bounded discovery evidence
+ * @param results settled analysis results
+ * @param scoreState deterministic prospect scores
+ * @param emit progress callback
+ * @param sellingContext optional seller product or ICP
+ * @param requesterMessage latest user message
+ * @param responseLanguage detected response language
+ * @param runtimeLabels localized progress labels
+ * @param signal cancels synthesis and backoff
+ * @returns validated synthesis, or null after the bounded fallback policy
+ */
+export async function synthesizeProspectBriefing(
+  config: LlmConfig,
+  briefing: DiscoveryBriefing,
+  results: ProspectAnalysisResults,
+  scoreState: ProspectScoreState,
+  emit: EmitCallback,
+  sellingContext: string | null,
+  requesterMessage: string,
+  responseLanguage: string,
+  runtimeLabels: RuntimeLabels,
+  signal?: AbortSignal,
+): Promise<SynthesisResult | null> {
+  emit({
+    type: "phase",
+    phase: "synthesis",
+    detail: formatRuntimeLabel(runtimeLabels.synthesizingTemplate, {
+      score: scoreState.composite.score,
+      grade: scoreState.composite.grade,
+    }),
+  });
+  try {
+    return await retryOperation(
+      () =>
+        runSynthesis(
+          config,
+          briefing,
+          results,
+          scoreState.composite,
+          scoreState.bant,
+          sellingContext,
+          requesterMessage,
+          responseLanguage,
+          signal,
+        ),
+      { ...STRUCTURED_LLM_RETRY_OPTIONS, signal },
+    );
+  } catch {
+    signal?.throwIfAborted();
+    emit({
+      type: "phase",
+      phase: "synthesis",
+      detail: runtimeLabels.synthesisUnavailable,
+    });
+    return null;
+  }
+}
+
+/**
+ * Format the final prospect result from completed graph-stage state.
+ * @param briefing bounded discovery evidence
+ * @param results settled analysis results
+ * @param scoreState deterministic prospect scores
+ * @param synthesis optional localized synthesis
+ * @param sellingContext optional seller product or ICP
+ * @param runtimeLabels localized report labels
+ * @returns final business result used to construct ReportState
+ */
+export function formatProspectOutcome(
+  briefing: DiscoveryBriefing,
+  results: ProspectAnalysisResults,
+  scoreState: ProspectScoreState,
+  synthesis: SynthesisResult | null,
+  sellingContext: string | null,
+  runtimeLabels: RuntimeLabels,
+): ProspectPipelineOutcome {
+  const markdown = synthesis
+    ? assembleReport(
+        briefing,
+        results,
+        scoreState.composite,
+        synthesis,
+        scoreState.bant,
+        sellingContext,
+      )
+    : assembleLocalizedFallbackReport(
+        briefing,
+        results,
+        scoreState.composite,
+        runtimeLabels,
+      );
+  return {
+    markdown,
+    composite: scoreState.composite,
+    companyName: briefing.companyName ?? briefing.url,
+    url: briefing.url,
+    categoryLabels: scoreState.composite.weighted.map((row) =>
+      localizedCategoryName(runtimeLabels, row.category),
+    ),
+    confidenceLabel: localizedConfidence(
+      runtimeLabels,
+      scoreState.composite.confidence,
+    ),
+  };
 }
 
 /**
@@ -203,75 +468,14 @@ export async function runProspectPipeline(
   responseLanguage: string = "English",
   runtimeLabels: RuntimeLabels = RUNTIME_LABEL_DEFAULTS,
   signal?: AbortSignal,
-): Promise<{
-  markdown: string;
-  composite: ProspectComposite;
-  companyName: string;
-  url: string;
-  categoryLabels: string[];
-  confidenceLabel: string;
-}> {
-  emit({
-    type: "phase",
-    phase: "discovery",
-    detail: formatRuntimeLabel(runtimeLabels.fetchingTemplate, { target: rawUrl }),
-  });
-  const homepage = await fetchWithVariants(rawUrl, signal);
-  const extraction = analyzeProspect(homepage.html, homepage.url);
-
-  emit({
-    type: "phase",
-    phase: "discovery",
-    detail: runtimeLabels.fetchingSubpages,
-  });
-  const subpages = await fetchSubpages(
-    extraction.internalLinks,
-    homepage.url,
+): Promise<ProspectPipelineOutcome> {
+  const briefing = await discoverProspect(
+    rawUrl,
+    emit,
+    runtimeLabels,
     signal,
   );
-
-  const contacts = extractContacts(subpages, homepage.html);
-  emit({
-    type: "phase",
-    phase: "discovery",
-    detail: formatRuntimeLabel(runtimeLabels.discoveryCompleteTemplate, {
-      pages: subpages.length + 1,
-      contacts: contacts.length,
-    }),
-  });
-
-  const briefing: DiscoveryBriefing = {
-    url: homepage.url,
-    companyName: extraction.companyName,
-    title: extraction.title,
-    description: extraction.description,
-    techStack: extraction.techStack,
-    socialProfiles: extraction.socialProfiles,
-    emails: extraction.emails,
-    hasPricingPage: extraction.hasPricingPage,
-    enterpriseTierListed: extraction.enterpriseTierListed,
-    jsonLdOrg: extraction.jsonLdOrg,
-    pages: [
-      {
-        name: "homepage",
-        url: homepage.url,
-        text: htmlToText(homepage.html).slice(0, PAGE_TEXT_BUDGET),
-      },
-      ...subpages.map((page) => ({
-        name: page.name,
-        url: page.url,
-        text: page.text,
-      })),
-    ],
-    contacts,
-  };
-
-  emit({
-    type: "phase",
-    phase: "analysis",
-    detail: runtimeLabels.launchingAgents,
-  });
-  const results = await runSubagents(
+  const results = await analyzeProspectBriefing(
     config,
     briefing,
     emit,
@@ -281,73 +485,27 @@ export async function runProspectPipeline(
     runtimeLabels,
     signal,
   );
-
-  const scores: CategoryScores = {};
-  for (const [index, settled] of results.entries()) {
-    const definition = SUBAGENTS[index];
-    if (settled.status === "fulfilled") {
-      scores[definition.category] = settled.value.score;
-    }
-  }
-  const composite = computeProspectScore(scores);
-  const bant = scoreBant(buildSignals(briefing, contacts));
-
-  emit({
-    type: "phase",
-    phase: "synthesis",
-    detail: formatRuntimeLabel(runtimeLabels.synthesizingTemplate, {
-      score: composite.score,
-      grade: composite.grade,
-    }),
-  });
-  let synthesis: SynthesisResult | null = null;
-  try {
-    synthesis = await runSynthesis(
-      config,
-      briefing,
-      results,
-      composite,
-      bant,
-      sellingContext,
-      requesterMessage,
-      responseLanguage,
-      signal,
-    );
-  } catch (caught) {
-    signal?.throwIfAborted();
-    emit({
-      type: "phase",
-      phase: "synthesis",
-      detail: runtimeLabels.synthesisUnavailable,
-    });
-  }
-
-  const markdown = synthesis
-    ? assembleReport(
-        briefing,
-        results,
-        composite,
-        synthesis,
-        bant,
-        sellingContext,
-      )
-    : assembleLocalizedFallbackReport(
-        briefing,
-        results,
-        composite,
-        runtimeLabels,
-      );
-
-  return {
-    markdown,
-    composite,
-    companyName: briefing.companyName ?? homepage.url,
-    url: homepage.url,
-    categoryLabels: composite.weighted.map((row) =>
-      localizedCategoryName(runtimeLabels, row.category),
-    ),
-    confidenceLabel: localizedConfidence(runtimeLabels, composite.confidence),
-  };
+  const scoreState = scoreProspectBriefing(briefing, results);
+  const synthesis = await synthesizeProspectBriefing(
+    config,
+    briefing,
+    results,
+    scoreState,
+    emit,
+    sellingContext,
+    requesterMessage,
+    responseLanguage,
+    runtimeLabels,
+    signal,
+  );
+  return formatProspectOutcome(
+    briefing,
+    results,
+    scoreState,
+    synthesis,
+    sellingContext,
+    runtimeLabels,
+  );
 }
 
 /**
@@ -445,57 +603,64 @@ async function runSubagents(
     requesterMessage,
     responseLanguage,
   );
-  const jobs = SUBAGENTS.map((definition) => {
-    const displayName = localizedAgentName(runtimeLabels, definition.name);
-    emit({
-      type: "agent",
-      agent: displayName,
-      detail: formatRuntimeLabel(runtimeLabels.agentRunningTemplate, {
-        agent: displayName,
-      }),
-      status: "running",
-    });
-    return chatCompletion(
-      config,
-      [
-        { role: "system", content: definition.systemPrompt },
-        { role: "user", content: promptContent },
-      ],
-      { temperature: 0.2, jsonMode: true, signal },
-    ).then((raw) => {
-      const result = parseSubagentResult(raw);
+  const results = await runGraphWorkerPool(
+    SUBAGENTS,
+    SUBAGENTS.length,
+    async (definition): Promise<PromiseSettledResult<SubagentResult>> => {
+      const displayName = localizedAgentName(runtimeLabels, definition.name);
       emit({
         type: "agent",
         agent: displayName,
-        detail: formatRuntimeLabel(runtimeLabels.agentDoneTemplate, {
+        detail: formatRuntimeLabel(runtimeLabels.agentRunningTemplate, {
           agent: displayName,
         }),
-        status: "done",
-        score: result.score,
+        status: "running",
       });
-      return result;
-    });
-  });
-  const guarded = jobs.map(async (job, index) => {
-    try {
-      return await job;
-    } catch (caught) {
-      const agent = SUBAGENTS[index]?.name ?? runtimeLabels.unknownLabel;
-      const displayName = localizedAgentName(runtimeLabels, agent);
-      emit({
-        type: "agent",
-        agent: displayName,
-        detail: formatRuntimeLabel(runtimeLabels.agentFailedTemplate, {
+      try {
+        const result = await retryOperation(
+          () =>
+            structuredChatCompletion(
+              config,
+              [
+                { role: "system", content: definition.systemPrompt },
+                { role: "user", content: promptContent },
+              ],
+              SUBAGENT_RESULT_SCHEMA,
+              {
+                temperature: 0.2,
+                schemaName: "prospect_subagent_result",
+                signal,
+              },
+            ),
+          { ...STRUCTURED_LLM_RETRY_OPTIONS, signal },
+        );
+        emit({
+          type: "agent",
           agent: displayName,
-        }),
-        status: "failed",
-      });
-      throw caught;
-    }
-  });
-  const settled = await Promise.allSettled(guarded);
+          detail: formatRuntimeLabel(runtimeLabels.agentDoneTemplate, {
+            agent: displayName,
+          }),
+          status: "done",
+          score: result.score,
+        });
+        return { status: "fulfilled", value: result };
+      } catch {
+        signal?.throwIfAborted();
+        emit({
+          type: "agent",
+          agent: displayName,
+          detail: formatRuntimeLabel(runtimeLabels.agentFailedTemplate, {
+            agent: displayName,
+          }),
+          status: "failed",
+        });
+        return { status: "rejected", reason: "analysis_unavailable" };
+      }
+    },
+    signal,
+  );
   signal?.throwIfAborted();
-  return settled;
+  return results;
 }
 
 /**
@@ -534,7 +699,7 @@ async function runSynthesis(
   const messages: LlmMessage[] = [
     {
       role: "system",
-      content: `You are the synthesis writer of a sales intelligence report. You receive a discovery briefing, five subagent verdicts, and a deterministic composite score. Write the narrative sections with absolute fidelity to the evidence: never invent facts, people, numbers, or events. The first email must be copy-paste ready, under 100 words, one low-friction CTA framed as a question, personalized with real data from the briefing. When the top contact is unknown, address it to the most plausible role and mark it clearly as unverified. When a WHAT WE SELL line is given in the user message, tailor the pitch and CTA specifically to that offering; when it is absent, keep the email focused on the prospect's own situation and do not invent or assume a specific product. ${RESPOND_IN_USER_LANGUAGE}
+      content: `You are the synthesis writer of a sales intelligence report. You receive a discovery briefing, five subagent verdicts, and a deterministic composite score. Write the narrative sections with absolute fidelity to the evidence: never invent facts, people, numbers, or events. ${UNTRUSTED_WEB_CONTENT_RULES} The first email must be copy-paste ready, under 100 words, one low-friction CTA framed as a question, personalized with real data from the briefing. When the top contact is unknown, address it to the most plausible role and mark it clearly as unverified. When a WHAT WE SELL line is given in the user message, tailor the pitch and CTA specifically to that offering; when it is absent, keep the email focused on the prospect's own situation and do not invent or assume a specific product. ${RESPOND_IN_USER_LANGUAGE}
 The user message also includes a LABELS object: a fixed set of short report section labels. Translate each of its values into the same language as everything above (echo unchanged if that's already English) and return it under "labels" with the exact same keys - never add, remove, or rename keys, and never translate product or brand names.
 It also includes four BANT rows. Translate only each row's name and evidence without changing their order, scores, meaning, or factual content, and return those translations under "bantTranslations".
 
@@ -562,16 +727,12 @@ DISCOVERY BRIEFING (excerpt):
 ${JSON.stringify({ ...briefing, pages: briefing.pages.slice(0, SYNTHESIS_PAGE_LIMIT) }).slice(0, SYNTHESIS_BRIEFING_CHAR_BUDGET)}`,
     },
   ];
-  const raw = await chatCompletion(config, messages, {
-    temperature: 0.3,
-    jsonMode: true,
-    signal,
-  });
-  const jsonText = extractJsonObject(raw);
-  if (!jsonText) {
-    throw new Error("Synthesis call returned no JSON object");
-  }
-  const parsed = SYNTHESIS_SCHEMA.parse(JSON.parse(jsonText));
+  const parsed = await structuredChatCompletion(
+    config,
+    messages,
+    SYNTHESIS_SCHEMA,
+    { temperature: 0.3, schemaName: "prospect_synthesis", signal },
+  );
   return { ...parsed, labels: mergeLabels(PROSPECT_REPORT_LABELS, parsed.labels) };
 }
 

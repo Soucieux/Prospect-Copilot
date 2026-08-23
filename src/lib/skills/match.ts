@@ -7,17 +7,29 @@ import { z } from "zod";
 import { fetchWithVariants, normalizeUrl } from "@/lib/extract/fetch-page";
 import { analyzeProspect } from "@/lib/extract/analyze-prospect";
 import { htmlToText } from "@/lib/extract/html-to-text";
-import { chatCompletion, extractJsonObject, type LlmConfig } from "@/lib/llm";
+import {
+  chatCompletion,
+  structuredChatCompletion,
+  type LlmConfig,
+} from "@/lib/llm";
 import type { EmitCallback, MatchDirection } from "@/lib/agent/schemas";
 import { NEVER_FABRICATE_RULES } from "@/lib/skills/subagents";
 import { isLikelyCompanyUrl, resolveCompanyUrl } from "@/lib/agent/router";
-import { NOT_PUBLICLY_AVAILABLE } from "@/lib/constants";
+import {
+  NOT_PUBLICLY_AVAILABLE,
+  UNTRUSTED_WEB_CONTENT_RULES,
+} from "@/lib/constants";
 import {
   RUNTIME_LABEL_DEFAULTS,
   formatRuntimeLabel,
   responseLanguageContext,
   type RuntimeLabels,
 } from "@/lib/localization";
+import { runGraphWorkerPool } from "@/lib/graph-worker-pool";
+import {
+  STRUCTURED_LLM_RETRY_OPTIONS,
+  retryOperation,
+} from "@/lib/retry";
 
 /** A dictionary of short UI labels, English keys mapped to their text. */
 export type LabelSet = Record<string, string>;
@@ -111,17 +123,44 @@ interface CandidateIdentifier {
   nameHint: string | null;
 }
 
-interface ResolvedCandidate {
+export interface ResolvedCandidate {
   url: string;
   nameHint: string | null;
 }
 
+/** Candidate discovery output retained between match graph stages. */
+export interface CandidatePool {
+  candidates: ResolvedCandidate[];
+  urls: string[];
+  labels: LabelSet;
+}
+
+/** Candidate score output retained after the scoring worker fan-in. */
+export interface CandidateScoreBatch {
+  scored: CandidateScore[];
+  labels: LabelSet;
+}
+
+/** Final match business result consumed by the workflow report node. */
+export interface MatchSkillResult {
+  markdown: string;
+  title: string;
+  matches: CandidateScore[];
+  cardLabels: {
+    founded: string;
+    fit: string;
+    auditHint: string;
+    auditRequestTemplate: string;
+  };
+}
+
 const MAX_CANDIDATES_TO_SCORE = 12;
+const MAX_CANDIDATE_CONCURRENCY = 4;
 const HOMEPAGE_CHAR_BUDGET = 4_000;
 const MATCH_RESULT_LIMIT = 8;
 
 const QUICK_SCORE_SCHEMA = z.object({
-  companyName: z.string().min(1).optional(),
+  companyName: z.string().trim().min(1),
   score: z.number().min(0).max(100),
   description: z.string().min(1),
   fitReason: z.string().min(1),
@@ -134,6 +173,7 @@ description of what the company does - for someone who has never heard of
 it - then judge its fit for the requested match direction. This is a single fast pass across
 possibly many candidates - be decisive, but never invent facts not in the
 briefing.
+${UNTRUSTED_WEB_CONTENT_RULES}
 Return the company's complete official company or brand name in companyName.
 Never use a hostname, URL, webpage section name, or generic page title as the
 companyName. Prefer the CANDIDATE NAME HINT when it agrees with the homepage;
@@ -312,20 +352,22 @@ async function suggestCandidates(
 ): Promise<{ identifiers: CandidateIdentifier[]; labels: LabelSet }> {
   const defaultLabels = reportLabelsFor(matchDirection);
   try {
-    const raw = await chatCompletion(
-      config,
-      [
-        { role: "system", content: CANDIDATE_SUGGESTION_SYSTEM_PROMPT },
-        {
-          role: "user",
-          content: `${responseLanguageContext(responseLanguage, requesterMessage)}\n\nMATCH DIRECTION: ${matchDirection}\n\nPRODUCT CONTEXT: ${sellingContext}\n\nREQUESTED LOCATION: ${matchLocation ?? "not specified"}\n\nLABELS: ${JSON.stringify(defaultLabels)}`,
-        },
-      ],
-      { temperature: 0.4, jsonMode: true, signal },
+    const parsed = await retryOperation(
+      () =>
+        structuredChatCompletion(
+          config,
+          [
+            { role: "system", content: CANDIDATE_SUGGESTION_SYSTEM_PROMPT },
+            {
+              role: "user",
+              content: `${responseLanguageContext(responseLanguage, requesterMessage)}\n\nMATCH DIRECTION: ${matchDirection}\n\nPRODUCT CONTEXT: ${sellingContext}\n\nREQUESTED LOCATION: ${matchLocation ?? "not specified"}\n\nLABELS: ${JSON.stringify(defaultLabels)}`,
+            },
+          ],
+          CANDIDATE_SUGGESTIONS_SCHEMA,
+          { temperature: 0.4, schemaName: "candidate_suggestions", signal },
+        ),
+      { ...STRUCTURED_LLM_RETRY_OPTIONS, signal },
     );
-    const jsonText = extractJsonObject(raw);
-    if (!jsonText) return { identifiers: [], labels: defaultLabels };
-    const parsed = CANDIDATE_SUGGESTIONS_SCHEMA.parse(JSON.parse(jsonText));
     return {
       identifiers: parsed.candidates.map((candidate) => ({
         identifier: candidate.url ?? candidate.name,
@@ -361,11 +403,7 @@ export async function resolveCandidates(
   matchDirection: MatchDirection = "sell",
   matchLocation: string | null = null,
   signal?: AbortSignal,
-): Promise<{
-  candidates: ResolvedCandidate[];
-  urls: string[];
-  labels: LabelSet;
-}> {
+): Promise<CandidatePool> {
   const defaultLabels = reportLabelsFor(matchDirection);
   const suggested =
     candidates && candidates.length > 0
@@ -390,11 +428,14 @@ export async function resolveCandidates(
   if (suggested.identifiers.length === 0) {
     return { candidates: [], urls: [], labels: suggested.labels };
   }
-  const resolved = await Promise.all(
-    suggested.identifiers.map(async ({ identifier, nameHint }) => {
+  const resolved = await runGraphWorkerPool(
+    suggested.identifiers,
+    MAX_CANDIDATE_CONCURRENCY,
+    async ({ identifier, nameHint }) => {
       const url = await resolveOneCandidate(config, identifier, signal);
       return url ? { url, nameHint } : null;
-    }),
+    },
+    signal,
   );
   const resolvedCandidates = dedupeByHost(
     resolved.filter(
@@ -405,6 +446,248 @@ export async function resolveCandidates(
     candidates: resolvedCandidates,
     urls: resolvedCandidates.map((candidate) => candidate.url),
     labels: suggested.labels,
+  };
+}
+
+/**
+ * Resolve the candidate pool while emitting the existing discovery lifecycle.
+ * @param config LLM credentials
+ * @param sellingContext product context used for candidate suggestions
+ * @param candidates user-named candidates, when supplied
+ * @param emit progress callback
+ * @param requesterMessage latest user message
+ * @param responseLanguage detected response language
+ * @param runtimeLabels localized progress labels
+ * @param matchDirection whether candidates buy or sell the product
+ * @param matchLocation explicit geographic constraint
+ * @param signal cancels discovery and URL resolution
+ * @returns resolved, deduplicated candidate pool
+ */
+export async function resolveMatchCandidatesStage(
+  config: LlmConfig,
+  sellingContext: string | null,
+  candidates: string[] | null,
+  emit: EmitCallback,
+  requesterMessage: string,
+  responseLanguage: string,
+  runtimeLabels: RuntimeLabels,
+  matchDirection: MatchDirection,
+  matchLocation: string | null,
+  signal?: AbortSignal,
+): Promise<CandidatePool> {
+  emit({
+    type: "phase",
+    phase: "discovery",
+    detail: candidates?.length
+      ? candidates.length === 1
+        ? runtimeLabels.resolvingCandidatesSingular
+        : formatRuntimeLabel(runtimeLabels.resolvingCandidatesPlural, {
+            count: candidates.length,
+          })
+      : matchDirection === "buy"
+        ? runtimeLabels.askingBuyCandidateSuggestions
+        : runtimeLabels.askingCandidateSuggestions,
+  });
+  const candidatePool = await resolveCandidates(
+    config,
+    candidates,
+    sellingContext,
+    requesterMessage,
+    responseLanguage,
+    matchDirection,
+    matchLocation,
+    signal,
+  );
+  if (candidatePool.candidates.length === 0) {
+    emit({
+      type: "phase",
+      phase: "done",
+      detail:
+        matchDirection === "buy"
+          ? runtimeLabels.noBuyCandidates
+          : runtimeLabels.noCandidates,
+    });
+  }
+  return candidatePool;
+}
+
+/**
+ * Score resolved candidates with bounded graph workers and partial fallback.
+ * @param config LLM credentials
+ * @param candidatePool resolved candidate stage output
+ * @param sellingContext product context for fit scoring
+ * @param namedCandidates user-named candidates, when supplied
+ * @param emit progress callback
+ * @param requesterMessage latest user message
+ * @param responseLanguage detected response language
+ * @param runtimeLabels localized progress labels
+ * @param matchDirection whether candidates buy or sell the product
+ * @param matchLocation explicit geographic constraint
+ * @param signal cancels scoring workers
+ * @returns successfully scored candidates and localized report labels
+ */
+export async function scoreMatchCandidatesStage(
+  config: LlmConfig,
+  candidatePool: CandidatePool,
+  sellingContext: string | null,
+  namedCandidates: string[] | null,
+  emit: EmitCallback,
+  requesterMessage: string,
+  responseLanguage: string,
+  runtimeLabels: RuntimeLabels,
+  matchDirection: MatchDirection,
+  matchLocation: string | null,
+  signal?: AbortSignal,
+): Promise<CandidateScoreBatch> {
+  const resolvedCandidates = candidatePool.candidates;
+  if (resolvedCandidates.length === 0) {
+    return { scored: [], labels: candidatePool.labels };
+  }
+  emit({
+    type: "phase",
+    phase: "analysis",
+    detail:
+      resolvedCandidates.length === 1
+        ? runtimeLabels.scoringCandidateSingular
+        : formatRuntimeLabel(runtimeLabels.scoringCandidatePlural, {
+            count: resolvedCandidates.length,
+          }),
+  });
+  resolvedCandidates.forEach(({ url }) =>
+    emit({
+      type: "agent",
+      agent: url,
+      detail: formatRuntimeLabel(runtimeLabels.agentRunningTemplate, {
+        agent: url,
+      }),
+      status: "running",
+    }),
+  );
+  const defaultLabels = reportLabelsFor(matchDirection);
+  const translateEveryScore = Boolean(namedCandidates?.length);
+  const scoredResults = await runGraphWorkerPool(
+    resolvedCandidates,
+    MAX_CANDIDATE_CONCURRENCY,
+    async ({ url, nameHint }, index) => {
+      try {
+        return await quickScoreCandidate(
+          config,
+          sellingContext,
+          url,
+          requesterMessage,
+          responseLanguage,
+          translateEveryScore || index === 0 ? defaultLabels : undefined,
+          nameHint,
+          matchDirection,
+          matchLocation,
+          signal,
+        );
+      } catch (caught) {
+        signal?.throwIfAborted();
+        return null;
+      }
+    },
+    signal,
+  );
+  signal?.throwIfAborted();
+  const scored: CandidateScore[] = [];
+  let labels = candidatePool.labels;
+  scoredResults.forEach((result, index) => {
+    const url = resolvedCandidates[index].url;
+    if (result) {
+      const { labels: translated, ...score } = result;
+      if (translated) labels = translated;
+      scored.push(score);
+      emit({
+        type: "agent",
+        agent: url,
+        detail: formatRuntimeLabel(runtimeLabels.agentDoneTemplate, {
+          agent: url,
+        }),
+        status: "done",
+        score: score.score,
+      });
+      return;
+    }
+    emit({
+      type: "agent",
+      agent: url,
+      detail: formatRuntimeLabel(runtimeLabels.agentFailedTemplate, {
+        agent: url,
+      }),
+      status: "failed",
+    });
+  });
+  return { scored, labels };
+}
+
+/**
+ * Rank and format completed match state without repeating earlier stages.
+ * @param candidatePool resolved candidate stage output
+ * @param scoreBatch scoring stage output
+ * @param sellingContext product context for report titles
+ * @param namedCandidates user-named candidates, when supplied
+ * @param emit progress callback
+ * @param runtimeLabels localized progress and card labels
+ * @param matchDirection whether candidates buy or sell the product
+ * @param matchLocation explicit geographic constraint
+ * @returns final match report and card metadata
+ */
+export function formatMatchSkillResult(
+  candidatePool: CandidatePool,
+  scoreBatch: CandidateScoreBatch,
+  sellingContext: string | null,
+  namedCandidates: string[] | null,
+  emit: EmitCallback,
+  runtimeLabels: RuntimeLabels,
+  matchDirection: MatchDirection,
+  matchLocation: string | null,
+): MatchSkillResult {
+  let labels = scoreBatch.labels;
+  const ranked = rankCandidates(scoreBatch.scored, MATCH_RESULT_LIMIT);
+  if (
+    ranked.length === 0 &&
+    namedCandidates?.length
+  ) {
+    const reportTitle = formatRuntimeLabel(runtimeLabels.reportTemplate, {
+      skill: runtimeLabels.skillMatch,
+    });
+    labels = {
+      ...labels,
+      titleTemplate: `${reportTitle}: {product}`,
+      titleFallback: reportTitle,
+      noneScored:
+        matchDirection === "buy"
+          ? runtimeLabels.noBuyCandidates
+          : runtimeLabels.noCandidates,
+    };
+  }
+  if (candidatePool.candidates.length > 0) {
+    emit({ type: "phase", phase: "done", detail: runtimeLabels.matchComplete });
+  }
+  const cardLabels =
+    matchDirection === "buy"
+      ? {
+          founded: labels.foundedLabel,
+          fit: labels.fitLabel,
+          auditHint: labels.auditHint,
+          auditRequestTemplate: labels.auditRequestTemplate,
+        }
+      : {
+          founded: runtimeLabels.foundedLabel,
+          fit: runtimeLabels.fitLabel,
+          auditHint: runtimeLabels.auditHint,
+          auditRequestTemplate: runtimeLabels.auditRequestTemplate,
+        };
+  return {
+    ...renderMatchReport(
+      sellingContext,
+      ranked,
+      scoreBatch.scored.length,
+      labels,
+      matchLocation,
+    ),
+    cardLabels,
   };
 }
 
@@ -524,24 +807,22 @@ Homepage text: ${htmlToText(page.html).slice(0, HOMEPAGE_CHAR_BUDGET)}`;
       ? `LABELS: ${JSON.stringify(labelsToTranslate)}\n\n`
       : "";
     const userContent = `${languageHint}${directionLine}${productLine}${locationLine}${labelsLine}${briefing}`;
-    const raw = await chatCompletion(
-      config,
-      [
-        { role: "system", content: QUICK_SCORE_SYSTEM_PROMPT },
-        { role: "user", content: userContent },
-      ],
-      { temperature: 0.2, jsonMode: true, signal },
+    const parsed = await retryOperation(
+      () =>
+        structuredChatCompletion(
+          config,
+          [
+            { role: "system", content: QUICK_SCORE_SYSTEM_PROMPT },
+            { role: "user", content: userContent },
+          ],
+          QUICK_SCORE_SCHEMA,
+          { temperature: 0.2, schemaName: "candidate_score", signal },
+        ),
+      { ...STRUCTURED_LLM_RETRY_OPTIONS, signal },
     );
-    const jsonText = extractJsonObject(raw);
-    if (!jsonText) return null;
-    const parsed = QUICK_SCORE_SCHEMA.parse(JSON.parse(jsonText));
     const score: CandidateScore = {
       url: page.url,
-      companyName:
-        parsed.companyName?.trim() ||
-        nameHint?.trim() ||
-        extraction.companyName?.trim() ||
-        new URL(page.url).hostname,
+      companyName: parsed.companyName,
       score: parsed.score,
       description: parsed.description,
       fitReason: parsed.fitReason,
@@ -584,169 +865,40 @@ export async function runMatchSkill(
   matchDirection: MatchDirection = "sell",
   matchLocation: string | null = null,
   signal?: AbortSignal,
-): Promise<{
-  markdown: string;
-  title: string;
-  matches: CandidateScore[];
-  cardLabels: {
-    founded: string;
-    fit: string;
-    auditHint: string;
-    auditRequestTemplate: string;
-  };
-}> {
-  const defaultLabels = reportLabelsFor(matchDirection);
-  const toCardLabels = (labels?: LabelSet) =>
-    matchDirection === "buy" && labels
-      ? {
-          founded: labels.foundedLabel,
-          fit: labels.fitLabel,
-          auditHint: labels.auditHint,
-          auditRequestTemplate: labels.auditRequestTemplate,
-        }
-      : {
-          founded: runtimeLabels.foundedLabel,
-          fit: runtimeLabels.fitLabel,
-          auditHint: runtimeLabels.auditHint,
-          auditRequestTemplate: runtimeLabels.auditRequestTemplate,
-        };
-  emit({
-    type: "phase",
-    phase: "discovery",
-    detail: candidates?.length
-      ? candidates.length === 1
-        ? runtimeLabels.resolvingCandidatesSingular
-        : formatRuntimeLabel(runtimeLabels.resolvingCandidatesPlural, {
-            count: candidates.length,
-          })
-      : matchDirection === "buy"
-        ? runtimeLabels.askingBuyCandidateSuggestions
-        : runtimeLabels.askingCandidateSuggestions,
-  });
-  const candidatePool = await resolveCandidates(
+): Promise<MatchSkillResult> {
+  const candidatePool = await resolveMatchCandidatesStage(
     config,
-    candidates,
     sellingContext,
+    candidates,
+    emit,
     requesterMessage,
     responseLanguage,
+    runtimeLabels,
     matchDirection,
     matchLocation,
     signal,
   );
-  const resolvedCandidates = candidatePool.candidates;
-  if (resolvedCandidates.length === 0) {
-    emit({
-      type: "phase",
-      phase: "done",
-      detail:
-        matchDirection === "buy"
-          ? runtimeLabels.noBuyCandidates
-          : runtimeLabels.noCandidates,
-    });
-    return {
-      ...renderMatchReport(
-        sellingContext,
-        [],
-        0,
-        candidatePool.labels,
-        matchLocation,
-      ),
-      cardLabels: toCardLabels(candidatePool.labels),
-    };
-  }
-
-  emit({
-    type: "phase",
-    phase: "analysis",
-    detail:
-      resolvedCandidates.length === 1
-        ? runtimeLabels.scoringCandidateSingular
-        : formatRuntimeLabel(runtimeLabels.scoringCandidatePlural, {
-            count: resolvedCandidates.length,
-          }),
-  });
-  resolvedCandidates.forEach(({ url }) =>
-    emit({
-      type: "agent",
-      agent: url,
-      detail: formatRuntimeLabel(runtimeLabels.agentRunningTemplate, {
-        agent: url,
-      }),
-      status: "running",
-    }),
+  const scoreBatch = await scoreMatchCandidatesStage(
+    config,
+    candidatePool,
+    sellingContext,
+    candidates,
+    emit,
+    requesterMessage,
+    responseLanguage,
+    runtimeLabels,
+    matchDirection,
+    matchLocation,
+    signal,
   );
-  const translateEveryScore = Boolean(candidates?.length);
-  const settled = await Promise.allSettled(
-    resolvedCandidates.map(({ url, nameHint }, index) =>
-      quickScoreCandidate(
-        config,
-        sellingContext,
-        url,
-        requesterMessage,
-        responseLanguage,
-        translateEveryScore || index === 0 ? defaultLabels : undefined,
-        nameHint,
-        matchDirection,
-        matchLocation,
-        signal,
-      ),
-    ),
+  return formatMatchSkillResult(
+    candidatePool,
+    scoreBatch,
+    sellingContext,
+    candidates,
+    emit,
+    runtimeLabels,
+    matchDirection,
+    matchLocation,
   );
-  signal?.throwIfAborted();
-  const scored: CandidateScore[] = [];
-  let labels = candidatePool.labels;
-  settled.forEach((result, index) => {
-    const url = resolvedCandidates[index].url;
-    if (result.status === "fulfilled" && result.value) {
-      const { labels: translated, ...score } = result.value;
-      if (translated) labels = translated;
-      scored.push(score);
-      emit({
-        type: "agent",
-        agent: url,
-        detail: formatRuntimeLabel(runtimeLabels.agentDoneTemplate, {
-          agent: url,
-        }),
-        status: "done",
-        score: score.score,
-      });
-    } else {
-      emit({
-        type: "agent",
-        agent: url,
-        detail: formatRuntimeLabel(runtimeLabels.agentFailedTemplate, {
-          agent: url,
-        }),
-        status: "failed",
-      });
-    }
-  });
-
-  const ranked = rankCandidates(scored, MATCH_RESULT_LIMIT);
-  if (
-    ranked.length === 0 &&
-    candidates?.length &&
-    matchDirection === "sell"
-  ) {
-    const reportTitle = formatRuntimeLabel(runtimeLabels.reportTemplate, {
-      skill: runtimeLabels.skillMatch,
-    });
-    labels = {
-      ...labels,
-      titleTemplate: `${reportTitle}: {product}`,
-      titleFallback: reportTitle,
-      noneScored: runtimeLabels.noCandidates,
-    };
-  }
-  emit({ type: "phase", phase: "done", detail: runtimeLabels.matchComplete });
-  return {
-    ...renderMatchReport(
-      sellingContext,
-      ranked,
-      scored.length,
-      labels,
-      matchLocation,
-    ),
-    cardLabels: toCardLabels(labels),
-  };
 }

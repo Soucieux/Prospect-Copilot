@@ -17,6 +17,7 @@ import { scoreBant, type ProspectSignals } from "@/lib/scoring/lead-scorer";
 import {
   NOT_PUBLICLY_AVAILABLE,
   RESPOND_IN_USER_LANGUAGE,
+  UNTRUSTED_WEB_CONTENT_RULES,
 } from "@/lib/constants";
 import {
   RUNTIME_LABEL_DEFAULTS,
@@ -43,6 +44,7 @@ const EVIDENCE_RULES = `
 Rules:
 - NEVER fabricate names, numbers, or claims. Missing data is "${NOT_PUBLICLY_AVAILABLE}" and lowers any assessment.
 - Cite the page or signal behind every factual line.
+- ${UNTRUSTED_WEB_CONTENT_RULES}
 - Output clean GitHub-flavored markdown with clear section headers. No preamble, no closing chatter.
 - ${RESPOND_IN_USER_LANGUAGE}`;
 

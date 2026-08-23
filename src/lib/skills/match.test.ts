@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   quickScoreCandidate,
+  formatMatchSkillResult,
   rankCandidates,
   renderMatchReport,
   resolveCandidates,
@@ -403,6 +404,7 @@ describe("quickScoreCandidate", () => {
   it("scores a candidate and fills description/fitReason from the LLM", async () => {
     stubNetwork({
       scoreJson: {
+        companyName: "Acme Corp",
         score: 82,
         description: "Acme Corp is a payroll software vendor.",
         fitReason: "Strong fit for the described offering.",
@@ -435,7 +437,7 @@ describe("quickScoreCandidate", () => {
     expect(result?.companyName).toBe("Mattel, Inc.");
   });
 
-  it("falls back to the retained discovery name when scoring omits a name", async () => {
+  it("repairs and then omits a candidate when scoring omits its name", async () => {
     const { companyName: _companyName, ...scoreWithoutName } = DEFAULT_SCORE_JSON;
     stubNetwork({ scoreJson: scoreWithoutName });
     const result = await quickScoreCandidate(
@@ -447,7 +449,8 @@ describe("quickScoreCandidate", () => {
       undefined,
       "Mattel, Inc.",
     );
-    expect(result?.companyName).toBe("Mattel, Inc.");
+    expect(result).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("fills location and founded from the page's own structured data", async () => {
@@ -493,6 +496,7 @@ describe("quickScoreCandidate", () => {
   it("does not drop other candidates when one fails", async () => {
     stubNetwork({
       scoreJson: {
+        companyName: "Acme Corp",
         score: 60,
         description: "A candidate company.",
         fitReason: "Fine.",
@@ -626,6 +630,7 @@ describe("runMatchSkill", () => {
   it("scores and ranks a user-supplied candidate list", async () => {
     stubNetwork({
       scoreJson: {
+        companyName: "Acme Corp",
         score: 75,
         description: "A payroll and HR software vendor.",
         fitReason: "Good fit.",
@@ -704,6 +709,7 @@ describe("runMatchSkill", () => {
         ],
       },
       scoreJson: {
+        companyName: "Acme Corp",
         score: 60,
         description: "A payroll and HR software vendor.",
         fitReason: "Decent fit.",
@@ -808,6 +814,31 @@ describe("runMatchSkill", () => {
     expect(cardLabels.auditRequestTemplate).toBe(
       "حلل {url} كعميل محتمل",
     );
+  });
+
+  it("uses localized empty output when named buy candidates cannot be scored", () => {
+    const labels = {
+      ...RUNTIME_LABEL_DEFAULTS,
+      reportTemplate: "{skill}报告",
+      skillMatch: "购买地点",
+      noBuyCandidates: "无法评估任何卖家或零售商。",
+    };
+    const result = formatMatchSkillResult(
+      {
+        candidates: [{ url: "https://ikea.example.com", nameHint: "IKEA" }],
+        urls: ["https://ikea.example.com"],
+        labels: {},
+      },
+      { scored: [], labels: {} },
+      "羊毛毯",
+      ["IKEA"],
+      () => {},
+      labels,
+      "buy",
+      null,
+    );
+    expect(result.title).toBe("购买地点报告: 羊毛毯");
+    expect(result.markdown).toContain("无法评估任何卖家或零售商。");
   });
 
   it("uses the same ranked report and card structure for buy mode", async () => {

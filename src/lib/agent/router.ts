@@ -3,7 +3,12 @@
  * A cheap, temperature-0 LLM call; falls back to plain chat on "none".
  */
 
-import { chatCompletion, extractJsonObject, type LlmConfig } from "@/lib/llm";
+import {
+  LlmError,
+  chatCompletion,
+  structuredChatCompletion,
+  type LlmConfig,
+} from "@/lib/llm";
 import { ROUTER_RESULT_SCHEMA, type RouterResult } from "@/lib/agent/schemas";
 import { normalizeUrl } from "@/lib/extract/fetch-page";
 import {
@@ -11,6 +16,10 @@ import {
   mergeRuntimeLabels,
   type RuntimeLabels,
 } from "@/lib/localization";
+import {
+  STRUCTURED_LLM_RETRY_OPTIONS,
+  retryOperation,
+} from "@/lib/retry";
 
 const ROUTER_SYSTEM_PROMPT = `You classify user messages for a sales intelligence assistant.
 Available skills:
@@ -100,6 +109,51 @@ const NONE_RESULT: ResolvedRouterResult = {
   runtimeLabels: RUNTIME_LABEL_DEFAULTS,
 };
 
+/** Raised when the router model returns text that does not satisfy its schema. */
+export class RouterOutputError extends Error {
+  /** Create an invalid-router-output failure for graph retry classification. */
+  public constructor() {
+    super("Router returned invalid structured output");
+    this.name = "RouterOutputError";
+  }
+}
+
+/**
+ * Run the router without resolving company names into URLs.
+ * @param config LLM credentials
+ * @param message latest user-authored message
+ * @param history prior bounded conversation turns
+ * @param signal cancels the provider request
+ * @returns validated routing and a complete runtime-label set
+ * @throws RouterOutputError when structured output is missing or invalid
+ */
+export async function routeMessageForWorkflow(
+  config: LlmConfig,
+  message: string,
+  history: { role: "user" | "assistant"; content: string }[] = [],
+  signal?: AbortSignal,
+): Promise<ResolvedRouterResult> {
+  try {
+    const parsed = await structuredChatCompletion(
+      config,
+      [
+        { role: "system", content: ROUTER_SYSTEM_PROMPT },
+        ...history,
+        { role: "user", content: message },
+      ],
+      ROUTER_RESULT_SCHEMA,
+      { temperature: 0, schemaName: "route_request", signal },
+    );
+    return {
+      ...parsed,
+      runtimeLabels: mergeRuntimeLabels(parsed.runtimeLabels),
+    };
+  } catch (caught) {
+    if (caught instanceof LlmError) throw caught;
+    throw new RouterOutputError();
+  }
+}
+
 /**
  * Classify a user message into a skill invocation or plain chat.
  * @param config LLM credentials
@@ -115,27 +169,13 @@ export async function routeMessage(
   history: { role: "user" | "assistant"; content: string }[] = [],
   signal?: AbortSignal,
 ): Promise<ResolvedRouterResult> {
-  const raw = await chatCompletion(
-    config,
-    [
-      { role: "system", content: ROUTER_SYSTEM_PROMPT },
-      ...history,
-      { role: "user", content: message },
-    ],
-    { temperature: 0, jsonMode: true, signal },
-  );
-  const jsonText = extractJsonObject(raw);
-  if (!jsonText) return NONE_RESULT;
-  let parsed: RouterResult;
+  let routing: ResolvedRouterResult;
   try {
-    parsed = ROUTER_RESULT_SCHEMA.parse(JSON.parse(jsonText));
-  } catch {
+    routing = await routeMessageForWorkflow(config, message, history, signal);
+  } catch (caught) {
+    if (!(caught instanceof RouterOutputError)) throw caught;
     return NONE_RESULT;
   }
-  const routing: ResolvedRouterResult = {
-    ...parsed,
-    runtimeLabels: mergeRuntimeLabels(parsed.runtimeLabels),
-  };
   if (!routing.url && routing.entity) {
     const resolved = await resolveCompanyUrl(config, routing.entity, signal);
     if (resolved) return { ...routing, url: resolved };
@@ -185,13 +225,17 @@ export async function resolveCompanyUrl(
   signal?: AbortSignal,
 ): Promise<string | null> {
   try {
-    const raw = await chatCompletion(
-      config,
-      [
-        { role: "system", content: URL_GUESS_SYSTEM_PROMPT },
-        { role: "user", content: entity },
-      ],
-      { temperature: 0, signal },
+    const raw = await retryOperation(
+      () =>
+        chatCompletion(
+          config,
+          [
+            { role: "system", content: URL_GUESS_SYSTEM_PROMPT },
+            { role: "user", content: entity },
+          ],
+          { temperature: 0, signal },
+        ),
+      { ...STRUCTURED_LLM_RETRY_OPTIONS, signal },
     );
     const candidate = raw.trim().replace(/^["'`]+|["'`]+$/g, "");
     if (!candidate || candidate.toLowerCase() === "unknown") return null;
