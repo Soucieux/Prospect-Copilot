@@ -22,6 +22,7 @@ import {
   replaceMessageSnapshot,
   updateLastMessageSnapshot,
 } from "@/lib/chat-state";
+import { buildChatHistory } from "@/lib/chat-history";
 import {
   createConversation,
   deleteConversation,
@@ -77,6 +78,7 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [error, setError] = useState("");
   const logRef = useRef<HTMLDivElement>(null);
   const activeRequestRef = useRef<AbortController | null>(null);
@@ -148,7 +150,7 @@ export default function Home() {
     setError("");
     setInput("");
     const current = messagesRef.current;
-    const history = current.map(({ role, content }) => ({ role, content }));
+    const history = buildChatHistory(current);
     const pendingMessages: ChatMessage[] = [
       ...current,
       { role: "user", content: text },
@@ -235,6 +237,7 @@ export default function Home() {
     );
     setMessages(replaceMessageSnapshot(messagesRef, conversation.messages));
     setError("");
+    setIsSidebarOpen(false);
   }
 
   /**
@@ -246,6 +249,7 @@ export default function Home() {
     window.localStorage.removeItem(ACTIVE_CONVERSATION_STORAGE_KEY);
     setMessages(replaceMessageSnapshot(messagesRef, []));
     setError("");
+    setIsSidebarOpen(false);
   }
 
   /**
@@ -265,7 +269,10 @@ export default function Home() {
 
   return (
     <main className="app">
-      <aside className="sidebar">
+      <aside
+        id="conversation-sidebar"
+        className={`sidebar ${isSidebarOpen ? "open" : ""}`}
+      >
         <div className="sidebar-brand">
           <span className="sidebar-brand-dot" aria-hidden /> Prospect Copilot
         </div>
@@ -298,14 +305,40 @@ export default function Home() {
           ))}
         </ul>
         <div className="sidebar-footer">
-          <button className="settings-toggle" onClick={() => setIsSettingsOpen(true)}>
+          <button
+            className="settings-toggle"
+            onClick={() => {
+              setIsSettingsOpen(true);
+              setIsSidebarOpen(false);
+            }}
+          >
             <span aria-hidden>⚙</span> Settings
             <span className="model-chip">{settings.model}</span>
           </button>
         </div>
       </aside>
 
+      {isSidebarOpen ? (
+        <button
+          className="sidebar-backdrop"
+          aria-label="Close conversation menu"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      ) : null}
+
       <div className="app-main">
+      <header className="mobile-header">
+        <button
+          className="mobile-menu-button"
+          aria-label="Open conversation menu"
+          aria-controls="conversation-sidebar"
+          aria-expanded={isSidebarOpen}
+          onClick={() => setIsSidebarOpen((open) => !open)}
+        >
+          <span aria-hidden>☰</span>
+        </button>
+        <span>Prospect Copilot</span>
+      </header>
       {error ? <div className="error-banner">{error}</div> : null}
 
       {messages.length === 0 ? (
@@ -456,6 +489,10 @@ export default function Home() {
                   setSettings({ ...settings, baseUrl: event.target.value })
                 }
               />
+              <small className="field-help">
+                Custom endpoints must be approved by the server through
+                LLM_ALLOWED_BASE_URLS.
+              </small>
             </div>
             <div className="modal-actions">
               <button
