@@ -428,8 +428,12 @@ export async function resolveCandidates(
   if (suggested.identifiers.length === 0) {
     return { candidates: [], urls: [], labels: suggested.labels };
   }
+  const identifiersToResolve = suggested.identifiers.slice(
+    0,
+    MAX_CANDIDATES_TO_SCORE,
+  );
   const resolved = await runGraphWorkerPool(
-    suggested.identifiers,
+    identifiersToResolve,
     MAX_CANDIDATE_CONCURRENCY,
     async ({ identifier, nameHint }) => {
       const url = await resolveOneCandidate(config, identifier, signal);

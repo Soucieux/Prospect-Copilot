@@ -332,6 +332,23 @@ describe("resolveCandidates", () => {
     expect(result.urls).toHaveLength(12);
   });
 
+  it("bounds explicit candidate resolution work before starting workers", async () => {
+    const candidates = Array.from(
+      { length: 20 },
+      (_, index) => `Company ${index + 1}`,
+    );
+    stubNetwork({ urlGuess: "https://resolved.example.com" });
+
+    const result = await resolveCandidates(
+      CONFIG,
+      candidates,
+      "payroll software",
+    );
+
+    expect(result.urls).toEqual(["https://resolved.example.com/"]);
+    expect(fetch).toHaveBeenCalledTimes(12);
+  });
+
   it("lets explicit geography override the dynamically detected language market", async () => {
     stubNetwork({ suggestJson: { candidates: [] } });
     await resolveCandidates(
