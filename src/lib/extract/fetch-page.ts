@@ -223,13 +223,21 @@ function requestPinned(
  * @returns status, final URL, and HTML body
  * @throws Error when blocked, unreachable, oversized, or redirect-looping
  */
-export async function fetchPage(raw: string): Promise<FetchedPage> {
+export async function fetchPage(
+  raw: string,
+  signal?: AbortSignal,
+): Promise<FetchedPage> {
   let url = normalizeUrl(raw);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const abortFromCaller = (): void => controller.abort(signal?.reason);
+  if (signal?.aborted) abortFromCaller();
+  else signal?.addEventListener("abort", abortFromCaller, { once: true });
   try {
     for (let redirects = 0; ; redirects++) {
+      controller.signal.throwIfAborted();
       const [pinnedIp] = await resolvePublicAddresses(url.hostname);
+      controller.signal.throwIfAborted();
       const response = await requestPinned(url, pinnedIp, controller.signal);
       if (!REDIRECT_STATUSES.has(response.status) || !response.location) {
         return { url: url.toString(), status: response.status, html: response.html };
@@ -241,6 +249,7 @@ export async function fetchPage(raw: string): Promise<FetchedPage> {
     }
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
@@ -250,7 +259,10 @@ export async function fetchPage(raw: string): Promise<FetchedPage> {
  * @returns the first successful fetch
  * @throws the last error when every variant fails
  */
-export async function fetchWithVariants(raw: string): Promise<FetchedPage> {
+export async function fetchWithVariants(
+  raw: string,
+  signal?: AbortSignal,
+): Promise<FetchedPage> {
   const base = normalizeUrl(raw);
   const variants = [
     base.toString(),
@@ -260,11 +272,13 @@ export async function fetchWithVariants(raw: string): Promise<FetchedPage> {
   const unique = [...new Set(variants)];
   let lastError: unknown = null;
   for (const variant of unique) {
+    signal?.throwIfAborted();
     try {
-      const page = await fetchPage(variant);
+      const page = await fetchPage(variant, signal);
       if (page.status < 400) return page;
       lastError = new Error(`HTTP ${page.status} for ${variant}`);
     } catch (caught) {
+      signal?.throwIfAborted();
       lastError = caught;
     }
   }

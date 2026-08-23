@@ -13,6 +13,7 @@ import {
   NOT_PUBLICLY_AVAILABLE,
   RESPOND_IN_USER_LANGUAGE,
 } from "@/lib/constants";
+import { responseLanguageContext } from "@/lib/localization";
 
 export interface SubagentDefinition {
   /** Key matching CategoryScores fields. */
@@ -146,14 +147,21 @@ ${OUTPUT_CONTRACT}`,
  * Build the user message for a subagent: briefing + framing.
  * @param briefingJson serialized discovery briefing
  * @param sellingContext optional description of the seller's product/ICP
+ * @param userMessage the requester's own chat message, included only so the
+ *   language instruction above has real text to detect language from - the
+ *   briefing itself is usually in the target company's own language
+ * @param responseLanguage language recognized from the latest user message
  * @returns the user-message content
  */
 export function subagentUserMessage(
   briefingJson: string,
   sellingContext: string | null,
+  userMessage: string = "",
+  responseLanguage: string = "English",
 ): string {
   const context = sellingContext ? `WHAT WE SELL: ${sellingContext}\n\n` : "";
-  return `${context}Analyze the following discovery briefing and return your JSON verdict.
+  const languageHint = `${responseLanguageContext(responseLanguage, userMessage)}\n\n`;
+  return `${languageHint}${context}Analyze the following discovery briefing and return your JSON verdict.
 
 DISCOVERY BRIEFING:
 ${briefingJson}`;

@@ -39,13 +39,24 @@ export const ROUTER_RESULT_SCHEMA = z.object({
   ]),
   url: z.string().nullable(),
   entity: z.string().nullable(),
-  /** The seller's product/ICP, when stated anywhere in the conversation. */
+  /** The product/ICP relevant to the current buy or sell request. */
   sellingContext: z.string().nullable(),
+  /** Whether match candidates should buy the product or sell it to the user. */
+  matchDirection: z
+    .enum(["sell", "buy"])
+    .nullish()
+    .default("sell")
+    .transform((direction) => direction ?? "sell"),
   /** Companies explicitly named as match candidates, verbatim; null otherwise. */
   candidates: z.array(z.string()).nullable(),
+  /** Language recognized from the latest user message, not scraped content. */
+  language: z.string().min(1).default("English"),
+  /** Partial translations of app-authored runtime labels. */
+  runtimeLabels: z.record(z.string(), z.string()).default({}),
 });
 
 export type RouterResult = z.infer<typeof ROUTER_RESULT_SCHEMA>;
+export type MatchDirection = RouterResult["matchDirection"];
 
 /** Synthesis call output: the narrative parts of the final report. */
 export const SYNTHESIS_SCHEMA = z.object({
@@ -62,6 +73,18 @@ export const SYNTHESIS_SCHEMA = z.object({
     body: z.string().min(1),
     cta: z.string().min(1),
   }),
+  /** Localized names and evidence for the four deterministic BANT rows. */
+  bantTranslations: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        evidence: z.string().min(1),
+      }),
+    )
+    .length(4)
+    .optional(),
+  /** The report's static section labels, translated to the user's language. */
+  labels: z.record(z.string(), z.string()).optional(),
 });
 
 export type SynthesisResult = z.infer<typeof SYNTHESIS_SCHEMA>;
@@ -72,6 +95,7 @@ export const CHAT_EVENT_SCHEMA = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("agent"),
     agent: z.string(),
+    detail: z.string(),
     status: z.enum(["running", "done", "failed"]),
     score: z.number().optional(),
   }),
@@ -116,6 +140,22 @@ export const CHAT_EVENT_SCHEMA = z.discriminatedUnion("type", [
           }),
         )
         .nullable(),
+      // Populated only for kind "match": localized card chrome labels.
+      matchLabels: z
+        .object({
+          founded: z.string(),
+          fit: z.string(),
+          auditHint: z.string(),
+          auditRequestTemplate: z.string(),
+        })
+        .nullable(),
+      // Localized scorecard chrome for every report kind.
+      scoreLabels: z.object({
+        grade: z.string(),
+        confidence: z.string(),
+        confidenceValue: z.string(),
+        report: z.string(),
+      }),
       markdown: z.string(),
     }),
   }),

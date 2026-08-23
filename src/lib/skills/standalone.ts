@@ -18,6 +18,13 @@ import {
   NOT_PUBLICLY_AVAILABLE,
   RESPOND_IN_USER_LANGUAGE,
 } from "@/lib/constants";
+import {
+  RUNTIME_LABEL_DEFAULTS,
+  formatRuntimeLabel,
+  localizedSkillName,
+  responseLanguageContext,
+  type RuntimeLabels,
+} from "@/lib/localization";
 
 export type StandaloneSkillName = "research" | "qualify" | "contacts" | "outreach";
 
@@ -94,6 +101,12 @@ ${EVIDENCE_RULES}`,
  * @param entity company or person name for outreach
  * @param emit progress callback
  * @param sellingContext optional description of the seller's product/ICP
+ * @param requesterMessage the requester's own chat message, included only so
+ *   the language instruction has real text to detect language from - the
+ *   discovery briefing itself is scraped from the target's own homepage
+ * @param responseLanguage language recognized from the latest user message
+ * @param runtimeLabels translated progress and fallback labels
+ * @param signal cancels discovery and generation
  * @returns the full markdown deliverable and its title
  */
 export async function runStandaloneSkill(
@@ -103,6 +116,10 @@ export async function runStandaloneSkill(
   entity: string | null,
   emit: EmitCallback,
   sellingContext: string | null = null,
+  requesterMessage: string = "",
+  responseLanguage: string = "English",
+  runtimeLabels: RuntimeLabels = RUNTIME_LABEL_DEFAULTS,
+  signal?: AbortSignal,
 ): Promise<{ markdown: string; title: string }> {
   const skill = STANDALONE_SKILLS.find((candidate) => candidate.name === skillName);
   if (!skill) throw new Error(`Unknown standalone skill: ${skillName}`);
@@ -113,8 +130,12 @@ verify as "${NOT_PUBLICLY_AVAILABLE}" rather than guessing.`;
   let title = entity ?? "prospect";
 
   if (skill.needsDiscovery && url) {
-    emit({ type: "phase", phase: "discovery", detail: `Fetching ${url}` });
-    const page = await fetchWithVariants(url);
+    emit({
+      type: "phase",
+      phase: "discovery",
+      detail: formatRuntimeLabel(runtimeLabels.fetchingTemplate, { target: url }),
+    });
+    const page = await fetchWithVariants(url, signal);
     const extraction = analyzeProspect(page.html, page.url);
     const contacts = findContacts(page.html);
     const signals = buildSignals(extraction, contacts);
@@ -148,12 +169,14 @@ ${
   emit({
     type: "phase",
     phase: "analysis",
-    detail: `Running the ${skill.name} skill`,
+    detail: formatRuntimeLabel(runtimeLabels.runningSkillTemplate, {
+      skill: localizedSkillName(runtimeLabels, skill.name),
+    }),
   });
 
-  const userContent = sellingContext
-    ? `WHAT WE SELL: ${sellingContext}\n\n${grounding}`
-    : grounding;
+  const languageHint = `${responseLanguageContext(responseLanguage, requesterMessage)}\n\n`;
+  const sellLine = sellingContext ? `WHAT WE SELL: ${sellingContext}\n\n` : "";
+  const userContent = `${languageHint}${sellLine}${grounding}`;
 
   let markdown = "";
   for await (const delta of streamChatCompletion(
@@ -162,20 +185,25 @@ ${
       { role: "system", content: skill.systemPrompt },
       { role: "user", content: userContent },
     ],
-    { temperature: 0.3 },
+    { temperature: 0.3, signal },
   )) {
     markdown += delta;
     emit({ type: "token", text: delta });
   }
 
   if (skill.name === "research" && !sellingContext) {
-    const nudge =
-      '\n\n---\n\n> Tell me what you sell (e.g. "we sell payroll software for mid-market companies") and I\'ll sharpen the Company Fit assessment on your next request.\n';
+    const nudge = `\n\n---\n\n> ${runtimeLabels.researchNudge}\n`;
     markdown += nudge;
     emit({ type: "token", text: nudge });
   }
 
-  emit({ type: "phase", phase: "done", detail: `${skill.name} complete` });
+  emit({
+    type: "phase",
+    phase: "done",
+    detail: formatRuntimeLabel(runtimeLabels.skillCompleteTemplate, {
+      skill: localizedSkillName(runtimeLabels, skill.name),
+    }),
+  });
   return { markdown, title };
 }
 

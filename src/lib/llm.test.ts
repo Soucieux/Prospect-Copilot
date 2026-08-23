@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { extractJsonObject } from "./llm";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { chatCompletion, extractJsonObject } from "./llm";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("extractJsonObject", () => {
   it("returns the object span from plain JSON text", () => {
@@ -30,5 +34,37 @@ describe("extractJsonObject", () => {
 
   it("returns null for an unterminated object", () => {
     expect(extractJsonObject("{ incomplete")).toBeNull();
+  });
+});
+
+describe("chatCompletion", () => {
+  it("aborts the provider request when the caller signal stops", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (_input: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => reject(init.signal?.reason),
+              { once: true },
+            );
+          }),
+      ),
+    );
+    const controller = new AbortController();
+    const pending = chatCompletion(
+      {
+        baseUrl: "https://api.example.com",
+        apiKey: "test-key",
+        model: "test-model",
+      },
+      [{ role: "user", content: "hello" }],
+      { signal: controller.signal },
+    );
+
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
   });
 });

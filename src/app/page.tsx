@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
+  ACTIVE_CONVERSATION_STORAGE_KEY,
   DEFAULT_LLM_BASE_URL,
   DEFAULT_LLM_MODEL,
   LLM_API_KEY_HEADER,
@@ -16,6 +18,10 @@ import type {
   ProgressEvent,
   ReportState,
 } from "@/lib/chat-types";
+import {
+  replaceMessageSnapshot,
+  updateLastMessageSnapshot,
+} from "@/lib/chat-state";
 import {
   createConversation,
   deleteConversation,
@@ -73,12 +79,22 @@ export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [error, setError] = useState("");
   const logRef = useRef<HTMLDivElement>(null);
+  const activeRequestRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
-  messagesRef.current = messages;
 
   useEffect(() => {
     listConversations()
-      .then(setConversations)
+      .then((stored) => {
+        setConversations(stored);
+        const activeId = window.localStorage.getItem(
+          ACTIVE_CONVERSATION_STORAGE_KEY,
+        );
+        const active = stored.find((conversation) => conversation.id === activeId);
+        if (active) {
+          setActiveConversationId(active.id);
+          setMessages(replaceMessageSnapshot(messagesRef, active.messages));
+        }
+      })
       .catch(() => {
         // IndexedDB unavailable - persistence is silently disabled.
       });
@@ -110,12 +126,9 @@ export default function Home() {
    */
   const updateLast = useCallback(
     (patch: (message: ChatMessage) => ChatMessage): void => {
-      setMessages((prev) => {
-        if (prev.length === 0) return prev;
-        const next = [...prev];
-        next[next.length - 1] = patch(next[next.length - 1]);
-        return next;
-      });
+      const next = updateLastMessageSnapshot(messagesRef, patch);
+      if (!next) return;
+      setMessages(next);
     },
     [],
   );
@@ -134,13 +147,17 @@ export default function Home() {
     }
     setError("");
     setInput("");
-    const history = messages.map(({ role, content }) => ({ role, content }));
-    setMessages((prev) => [
-      ...prev,
+    const current = messagesRef.current;
+    const history = current.map(({ role, content }) => ({ role, content }));
+    const pendingMessages: ChatMessage[] = [
+      ...current,
       { role: "user", content: text },
       { role: "assistant", content: "", progress: [] },
-    ]);
+    ];
+    setMessages(replaceMessageSnapshot(messagesRef, pendingMessages));
     setIsStreaming(true);
+    const requestController = new AbortController();
+    activeRequestRef.current = requestController;
     try {
       const headers: Record<string, string> = {
         "content-type": "application/json",
@@ -152,6 +169,7 @@ export default function Home() {
         method: "POST",
         headers,
         body: JSON.stringify({ message: text, history }),
+        signal: requestController.signal,
       });
       if (!response.ok || !response.body) {
         const detail = await response.text().catch(() => "");
@@ -159,11 +177,21 @@ export default function Home() {
       }
       await consumeStream(response.body, updateLast);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
+      if (!requestController.signal.aborted) {
+        setError(caught instanceof Error ? caught.message : String(caught));
+      }
     } finally {
+      if (activeRequestRef.current === requestController) {
+        activeRequestRef.current = null;
+      }
       setIsStreaming(false);
       await persistCurrentExchange();
     }
+  }
+
+  /** Cancel the active browser request; the same signal stops server work. */
+  function stopProcessing(): void {
+    activeRequestRef.current?.abort();
   }
 
   /**
@@ -175,6 +203,7 @@ export default function Home() {
     if (current.length < 2) return;
     const id = activeConversationId ?? createConversation().id;
     setActiveConversationId(id);
+    window.localStorage.setItem(ACTIVE_CONVERSATION_STORAGE_KEY, id);
     const now = new Date().toISOString();
     const existing = conversations.find((item) => item.id === id);
     const record: StoredConversation = {
@@ -200,7 +229,11 @@ export default function Home() {
   function openConversation(conversation: StoredConversation): void {
     if (isStreaming) return;
     setActiveConversationId(conversation.id);
-    setMessages(conversation.messages);
+    window.localStorage.setItem(
+      ACTIVE_CONVERSATION_STORAGE_KEY,
+      conversation.id,
+    );
+    setMessages(replaceMessageSnapshot(messagesRef, conversation.messages));
     setError("");
   }
 
@@ -210,7 +243,8 @@ export default function Home() {
   function startNewConversation(): void {
     if (isStreaming) return;
     setActiveConversationId(null);
-    setMessages([]);
+    window.localStorage.removeItem(ACTIVE_CONVERSATION_STORAGE_KEY);
+    setMessages(replaceMessageSnapshot(messagesRef, []));
     setError("");
   }
 
@@ -316,17 +350,20 @@ export default function Home() {
                     message.report.matches.length > 0 ? (
                       <MatchCandidateCards
                         candidates={message.report.matches}
+                        labels={message.report.matchLabels ?? DEFAULT_MATCH_CARD_LABELS}
                         disabled={isStreaming}
-                        onSelect={(candidate) =>
-                          void send(`analyze ${candidate.url} as a prospect`)
+                        onSelect={(_candidate, requestText) =>
+                          void send(requestText)
                         }
                       />
                     ) : (
-                      <Markdown>
-                        {message.report
-                          ? message.report.markdown
-                          : message.content}
-                      </Markdown>
+                      <ReportDocument
+                        markdown={
+                          message.report
+                            ? message.report.markdown
+                            : message.content
+                        }
+                      />
                     )}
                     {isStreaming && index === messages.length - 1 ? (
                       <span className="streaming-cursor" aria-hidden />
@@ -357,12 +394,14 @@ export default function Home() {
             disabled={isStreaming}
           />
           <button
-            className="send-button"
-            aria-label="Send message"
-            onClick={() => void send()}
-            disabled={isStreaming || !input.trim()}
+            className={`send-button ${isStreaming ? "stop-button" : ""}`}
+            aria-label={isStreaming ? "Stop processing" : "Send message"}
+            onClick={() =>
+              isStreaming ? stopProcessing() : void send()
+            }
+            disabled={!isStreaming && !input.trim()}
           >
-            {isStreaming ? "…" : "↑"}
+            <span aria-hidden>{isStreaming ? "■" : "↑"}</span>
           </button>
         </div>
         <p className="composer-hint">
@@ -433,6 +472,26 @@ export default function Home() {
   );
 }
 
+/** Semantic, styled Markdown renderer shared by streaming and final reports. */
+function ReportDocument({ markdown }: { markdown: string }): JSX.Element {
+  return (
+    <article className="report-document">
+      <Markdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ children, ...props }) => (
+            <a {...props} target="_blank" rel="noreferrer">
+              {children}
+            </a>
+          ),
+        }}
+      >
+        {markdown}
+      </Markdown>
+    </article>
+  );
+}
+
 /**
  * Live phase/agent progress list during a pipeline run.
  * @param events progress events accumulated so far
@@ -463,22 +522,31 @@ interface ReportSectionProps {
   report: ReportState;
 }
 
+/** English recovery labels for reports saved before per-message localization. */
+const DEFAULT_SCORE_LABELS = {
+  grade: "Grade",
+  confidence: "confidence",
+  confidenceValue: "",
+  report: "Report",
+};
+
 /**
  * Score summary card with Unicode block bars, ported from the CLI design.
  * @param report the structured report payload
  */
 function Scorecard({ report }: ReportSectionProps): JSX.Element {
+  const labels = report.scoreLabels ?? DEFAULT_SCORE_LABELS;
   return (
     <div className="scorecard">
       <div className="scorecard-head">
         <strong>{report.companyName}</strong>
         {report.score !== null && report.categories ? (
           <span className="scorecard-total">
-            {report.score}/100 · Grade {report.grade} · {report.confidence}{" "}
-            confidence
+            {report.score}/100 · {labels.grade} {report.grade} ·{" "}
+            {labels.confidenceValue} {labels.confidence}
           </span>
         ) : (
-          <span className="scorecard-total">{report.kind} report</span>
+          <span className="scorecard-total">{labels.report}</span>
         )}
       </div>
       {(report.categories ?? []).map((category) => (
@@ -504,31 +572,45 @@ function bar(score: number): string {
   return "█".repeat(filled) + "░".repeat(10 - filled);
 }
 
+/** English fallback card labels, used only if a stored report predates matchLabels. */
+const DEFAULT_MATCH_CARD_LABELS = {
+  founded: "Founded",
+  fit: "Fit",
+  auditHint: "Click for a full prospect audit →",
+  auditRequestTemplate: "Analyze {url} as a prospect",
+};
+
 /**
- * Ranked candidate cards for the match skill: name, score, location/founded
- * when known, a factual description, and the fit judgment; clicking one
- * runs a full prospect audit on it.
+ * Ranked candidate cards for the match skill: full company name, score,
+ * website, location/founded when known, factual description, fit judgment,
+ * and a separate action that runs a full prospect audit.
  * @param candidates the ranked candidates to show
+ * @param labels localized card chrome labels
  * @param disabled true while another request is streaming
- * @param onSelect called with the clicked candidate
+ * @param onSelect called with the clicked candidate and localized request text
  */
 function MatchCandidateCards({
   candidates,
+  labels,
   disabled,
   onSelect,
 }: {
   candidates: MatchCandidate[];
+  labels: {
+    founded: string;
+    fit: string;
+    auditHint: string;
+    auditRequestTemplate: string;
+  };
   disabled: boolean;
-  onSelect: (candidate: MatchCandidate) => void;
+  onSelect: (candidate: MatchCandidate, requestText: string) => void;
 }): JSX.Element {
   return (
     <div className="match-cards">
       {candidates.map((candidate) => (
-        <button
+        <article
           key={candidate.url}
           className="match-card"
-          disabled={disabled}
-          onClick={() => onSelect(candidate)}
         >
           <div className="match-card-head">
             <strong className="match-card-title">
@@ -536,22 +618,42 @@ function MatchCandidateCards({
             </strong>
             <span className="match-card-score">{candidate.score}/100</span>
           </div>
+          <a
+            className="match-card-url"
+            href={candidate.url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {candidate.url}
+          </a>
           {candidate.location || candidate.founded ? (
             <div className="match-card-meta">
               {candidate.location ? <span>{candidate.location}</span> : null}
               {candidate.founded ? (
-                <span>Founded {candidate.founded}</span>
+                <span>
+                  {labels.founded} {candidate.founded}
+                </span>
               ) : null}
             </div>
           ) : null}
           <p className="match-card-description">{candidate.description}</p>
           <p className="match-card-fit">
-            <strong>Fit:</strong> {candidate.fitReason}
+            <strong>{labels.fit}:</strong> {candidate.fitReason}
           </p>
-          <span className="match-card-hint">
-            Click for a full prospect audit →
-          </span>
-        </button>
+          <button
+            type="button"
+            className="match-card-audit"
+            disabled={disabled}
+            onClick={() =>
+              onSelect(
+                candidate,
+                labels.auditRequestTemplate.replace("{url}", candidate.url),
+              )
+            }
+          >
+            {labels.auditHint}
+          </button>
+        </article>
       ))}
     </div>
   );
@@ -621,7 +723,7 @@ function applyEvent(
         {
           kind: "agent",
           label: String(event.agent),
-          detail: `${event.agent}: ${event.status}`,
+          detail: String(event.detail),
           status: event.status as ProgressEvent["status"],
           score: typeof event.score === "number" ? event.score : undefined,
         },

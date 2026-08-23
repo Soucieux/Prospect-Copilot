@@ -31,6 +31,20 @@ export interface ReportState {
   categories: { category: string; score: number; weight: number }[] | null;
   /** Populated only for kind "match": the ranked candidates to render as cards. */
   matches: MatchCandidate[] | null;
+  /** Populated only for kind "match": localized card chrome labels. */
+  matchLabels: {
+    founded: string;
+    fit: string;
+    auditHint: string;
+    auditRequestTemplate: string;
+  } | null;
+  /** Localized labels used by the report summary card. */
+  scoreLabels: {
+    grade: string;
+    confidence: string;
+    confidenceValue: string;
+    report: string;
+  };
   markdown: string;
 }
 

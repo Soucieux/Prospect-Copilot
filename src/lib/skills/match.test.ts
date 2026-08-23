@@ -8,6 +8,7 @@ import {
   type CandidateScore,
 } from "./match";
 import type { LlmConfig } from "@/lib/llm";
+import { RUNTIME_LABEL_DEFAULTS } from "@/lib/localization";
 
 vi.mock("@/lib/extract/fetch-page", async (importOriginal) => {
   const actual =
@@ -31,6 +32,7 @@ const CONFIG: LlmConfig = {
 };
 
 const DEFAULT_SCORE_JSON = {
+  companyName: "Acme Corp",
   score: 70,
   description: "Sells payroll and HR software to mid-market companies.",
   fitReason: "Decent fit for the described offering.",
@@ -154,34 +156,111 @@ describe("renderMatchReport", () => {
     expect(markdown).not.toContain("undefined");
     expect(matches).toEqual([]);
   });
+
+  it("uses translated labels when a custom label set is passed", () => {
+    const labels = {
+      titleTemplate: "Coincidencias para: {product}",
+      titleFallback: "Coincidencias",
+      noneScored: "Sin candidatos.",
+      rankedTemplateSingular: "1 de {total} candidato:",
+      rankedTemplatePlural: "{ranked} de {total} candidatos:",
+      locationLabel: "Ubicación",
+      foundedLabel: "Fundada",
+      fitLabel: "Encaje",
+      omittedTemplateSingular: "{count} candidato omitido.",
+      omittedTemplatePlural: "{count} candidatos omitidos.",
+      auditPrompt: "Pregunta por cualquiera de estos.",
+      auditHint: "Haz clic para la auditoría completa →",
+      auditRequestTemplate: "Analiza {url} como prospecto",
+      nudge: "¿Qué vendes?",
+    };
+    const { markdown, title } = renderMatchReport(
+      "software de nómina",
+      [acme],
+      3,
+      labels,
+    );
+    expect(title).toBe("Coincidencias para: software de nómina");
+    expect(markdown).toContain("1 de 3 candidatos:");
+    expect(markdown).toContain("Ubicación: San Francisco, CA");
+    expect(markdown).toContain("Fundada: 1998");
+    expect(markdown).toContain("Encaje:");
+    expect(markdown).toContain("2 candidatos omitidos.");
+    expect(markdown).toContain("Pregunta por cualquiera de estos.");
+  });
 });
 
 describe("resolveCandidates", () => {
   it("uses supplied URLs as-is without any LLM call", async () => {
     stubNetwork({});
-    const urls = await resolveCandidates(
+    const result = await resolveCandidates(
       CONFIG,
       ["https://acme.example.com"],
       "payroll software",
     );
-    expect(urls).toEqual(["https://acme.example.com/"]);
+    expect(result.urls).toEqual(["https://acme.example.com/"]);
   });
 
   it("resolves a supplied company name via an LLM guess", async () => {
     stubNetwork({ urlGuess: "https://acme.example.com" });
-    const urls = await resolveCandidates(CONFIG, ["Acme Corp"], "payroll software");
-    expect(urls).toEqual(["https://acme.example.com/"]);
+    const result = await resolveCandidates(
+      CONFIG,
+      ["Acme Corp"],
+      "payroll software",
+    );
+    expect(result.urls).toEqual(["https://acme.example.com/"]);
+  });
+
+  it("resolves a bare Unicode company name instead of making a Punycode URL", async () => {
+    stubNetwork({ urlGuess: "https://www.ikea.cn" });
+    const result = await resolveCandidates(
+      CONFIG,
+      ["宜家家居"],
+      "羊毛毯",
+      "我想去卖羊毛毯，如何选择",
+      "Chinese",
+    );
+    expect(result.urls).toEqual(["https://www.ikea.cn/"]);
+    expect(result.urls.some((url) => url.includes("xn--"))).toBe(false);
+  });
+
+  it("drops a product term rather than converting it into a Punycode URL", async () => {
+    stubNetwork({ urlGuess: "unknown" });
+    const result = await resolveCandidates(
+      CONFIG,
+      ["羊毛毯"],
+      "羊毛毯",
+      "羊毛毯",
+      "Chinese",
+    );
+    expect(result.urls).toEqual([]);
+  });
+
+  it("rejects an explicitly prefixed product term as a single-label host", async () => {
+    stubNetwork({});
+    const result = await resolveCandidates(
+      CONFIG,
+      ["https://羊毛毯"],
+      "羊毛毯",
+      "羊毛毯",
+      "Chinese",
+    );
+    expect(result.urls).toEqual([]);
   });
 
   it("drops a guessed URL that isn't a real company site", async () => {
     stubNetwork({ urlGuess: "https://linkedin.com/company/acme" });
-    const urls = await resolveCandidates(CONFIG, ["Acme Corp"], "payroll software");
-    expect(urls).toEqual([]);
+    const result = await resolveCandidates(
+      CONFIG,
+      ["Acme Corp"],
+      "payroll software",
+    );
+    expect(result.urls).toEqual([]);
   });
 
   it("returns an empty list when there is nothing to work with", async () => {
-    const urls = await resolveCandidates(CONFIG, null, null);
-    expect(urls).toEqual([]);
+    const result = await resolveCandidates(CONFIG, null, null);
+    expect(result.urls).toEqual([]);
   });
 
   it("asks the LLM to suggest candidates in discovery mode and resolves each", async () => {
@@ -194,11 +273,88 @@ describe("resolveCandidates", () => {
       },
       urlGuess: "https://globex.example.com",
     });
-    const urls = await resolveCandidates(CONFIG, null, "payroll software");
-    expect(urls).toEqual([
+    const result = await resolveCandidates(
+      CONFIG,
+      null,
+      "payroll software",
+      "どの会社を対象にすべきですか？",
+      "Japanese",
+    );
+    expect(result.urls).toEqual([
       "https://acme.example.com/",
       "https://globex.example.com/",
     ]);
+    const suggestionCall = vi.mocked(fetch).mock.calls.find((call) => {
+      const body = JSON.parse(String(call[1]?.body)) as {
+        messages?: { content?: string }[];
+      };
+      return body.messages?.[0]?.content?.includes("discover real companies");
+    });
+    const suggestionBody = JSON.parse(String(suggestionCall?.[1]?.body)) as {
+      messages: { content: string }[];
+    };
+    expect(suggestionBody.messages[1].content).toContain(
+      "DETECTED RESPONSE LANGUAGE: Japanese",
+    );
+    expect(suggestionBody.messages[1].content).toContain(
+      "どの会社を対象にすべきですか？",
+    );
+  });
+
+  it("accepts up to twelve discovered candidates", async () => {
+    const candidates = Array.from({ length: 12 }, (_, index) => ({
+      name: `Company ${index + 1}`,
+      url: `https://company-${index + 1}.example.com`,
+    }));
+    stubNetwork({ suggestJson: { candidates } });
+    const result = await resolveCandidates(
+      CONFIG,
+      null,
+      "payroll software",
+      "find companies",
+      "English",
+    );
+    expect(result.urls).toHaveLength(12);
+  });
+
+  it("lets explicit geography override the dynamically detected language market", async () => {
+    stubNetwork({ suggestJson: { candidates: [] } });
+    await resolveCandidates(
+      CONFIG,
+      null,
+      "plateforme de paie pour entreprises québécoises",
+      "Trouvez des entreprises au Québec",
+      "French",
+    );
+    const call = vi.mocked(fetch).mock.calls[0];
+    const body = JSON.parse(String(call[1]?.body)) as {
+      messages: { content: string }[];
+    };
+    expect(body.messages[0].content).toMatch(
+      /explicit country, region, or\s+market/i,
+    );
+    expect(body.messages[1].content).toContain("Québec");
+  });
+
+  it("discovers sellers with the existing candidate pipeline in buy mode", async () => {
+    stubNetwork({ suggestJson: { candidates: [] } });
+    await resolveCandidates(
+      CONFIG,
+      null,
+      "羊毛毯",
+      "哪里可以买到羊毛毯？",
+      "Chinese",
+      "buy",
+    );
+    const call = vi.mocked(fetch).mock.calls[0];
+    const body = JSON.parse(String(call[1]?.body)) as {
+      messages: { content: string }[];
+    };
+    expect(body.messages[0].content).toContain(
+      "for buy,\nsuggest plausible sellers",
+    );
+    expect(body.messages[1].content).toContain("MATCH DIRECTION: buy");
+    expect(body.messages[1].content).toContain("PRODUCT CONTEXT: 羊毛毯");
   });
 });
 
@@ -221,6 +377,36 @@ describe("quickScoreCandidate", () => {
     expect(result?.companyName).toBe("Acme Corp");
     expect(result?.description).toBe("Acme Corp is a payroll software vendor.");
     expect(result?.fitReason).toBe("Strong fit for the described offering.");
+  });
+
+  it("uses the official company name returned by scoring instead of the hostname", async () => {
+    stubNetwork({
+      scoreJson: {
+        ...DEFAULT_SCORE_JSON,
+        companyName: "Mattel, Inc.",
+      },
+    });
+    const result = await quickScoreCandidate(
+      CONFIG,
+      "toys",
+      "https://about.mattel.com",
+    );
+    expect(result?.companyName).toBe("Mattel, Inc.");
+  });
+
+  it("falls back to the retained discovery name when scoring omits a name", async () => {
+    const { companyName: _companyName, ...scoreWithoutName } = DEFAULT_SCORE_JSON;
+    stubNetwork({ scoreJson: scoreWithoutName });
+    const result = await quickScoreCandidate(
+      CONFIG,
+      "toys",
+      "https://about.mattel.com",
+      "",
+      "English",
+      undefined,
+      "Mattel, Inc.",
+    );
+    expect(result?.companyName).toBe("Mattel, Inc.");
   });
 
   it("fills location and founded from the page's own structured data", async () => {
@@ -279,6 +465,91 @@ describe("quickScoreCandidate", () => {
     expect(results[0]).toBeNull();
     expect(results[1]?.score).toBe(60);
   });
+
+  it("sends an arbitrary recognized language and the raw message to the LLM", async () => {
+    stubNetwork({});
+    await quickScoreCandidate(
+      CONFIG,
+      "payroll software",
+      "https://acme.example.com",
+      "quali aziende dovremmo contattare?",
+      "Italian",
+    );
+    const call = vi.mocked(fetch).mock.calls[0];
+    const body = JSON.parse(String(call[1]?.body)) as {
+      messages: { content: string }[];
+    };
+    expect(body.messages[1].content).toContain(
+      "DETECTED RESPONSE LANGUAGE: Italian",
+    );
+    expect(body.messages[1].content).toContain(
+      "quali aziende dovremmo contattare?",
+    );
+  });
+
+  it("keeps an explicit response language even when the message is empty", async () => {
+    stubNetwork({});
+    await quickScoreCandidate(CONFIG, "payroll software", "https://acme.example.com");
+    const call = vi.mocked(fetch).mock.calls[0];
+    const body = JSON.parse(String(call[1]?.body)) as {
+      messages: { content: string }[];
+    };
+    expect(body.messages[1].content).toContain(
+      "DETECTED RESPONSE LANGUAGE: English",
+    );
+  });
+
+  it("scores purchase sources against what the user wants to buy", async () => {
+    stubNetwork({});
+    await quickScoreCandidate(
+      CONFIG,
+      "羊毛毯",
+      "https://acme.example.com",
+      "哪里可以买到羊毛毯？",
+      "Chinese",
+      undefined,
+      null,
+      "buy",
+    );
+    const call = vi.mocked(fetch).mock.calls[0];
+    const body = JSON.parse(String(call[1]?.body)) as {
+      messages: { content: string }[];
+    };
+    expect(body.messages[1].content).toContain("MATCH DIRECTION: buy");
+    expect(body.messages[1].content).toContain("WHAT WE WANT TO BUY: 羊毛毯");
+  });
+
+  it("omits labels entirely when no labelsToTranslate is given", async () => {
+    stubNetwork({});
+    const result = await quickScoreCandidate(
+      CONFIG,
+      "payroll software",
+      "https://acme.example.com",
+    );
+    expect(result && "labels" in result).toBe(false);
+  });
+
+  it("returns merged translated labels when labelsToTranslate is given", async () => {
+    stubNetwork({
+      scoreJson: {
+        ...DEFAULT_SCORE_JSON,
+        labels: { foundedLabel: "Fondée", fitLabel: "" },
+      },
+    });
+    const result = await quickScoreCandidate(
+      CONFIG,
+      "payroll software",
+      "https://acme.example.com",
+      "",
+      "French",
+      { foundedLabel: "Founded", fitLabel: "Fit", locationLabel: "Location" },
+    );
+    expect(result?.labels).toEqual({
+      foundedLabel: "Fondée",
+      fitLabel: "Fit",
+      locationLabel: "Location",
+    });
+  });
 });
 
 describe("runMatchSkill", () => {
@@ -309,6 +580,49 @@ describe("runMatchSkill", () => {
     const doneEvents = agentEvents.filter((e) => e.status === "done");
     expect(agentEvents).toHaveLength(4); // running + done per candidate
     expect(doneEvents).toHaveLength(2);
+  });
+
+  it("returns up to eight successful matches", async () => {
+    stubNetwork({ scoreJson: DEFAULT_SCORE_JSON });
+    const candidates = Array.from(
+      { length: 10 },
+      (_, index) => `https://company-${index + 1}.example.com`,
+    );
+    const { matches } = await runMatchSkill(
+      CONFIG,
+      "payroll software",
+      candidates,
+      () => {},
+    );
+    expect(matches).toHaveLength(8);
+  });
+
+  it("emits localized progress and agent logs", async () => {
+    stubNetwork({ scoreJson: DEFAULT_SCORE_JSON });
+    const events: { type: string; detail?: string }[] = [];
+    await runMatchSkill(
+      CONFIG,
+      "営業分析プラットフォーム",
+      ["https://acme.example.com"],
+      (event) => events.push(event),
+      "どの会社を対象にすべきですか？",
+      "Japanese",
+      {
+        ...RUNTIME_LABEL_DEFAULTS,
+        resolvingCandidatesSingular: "指定された候補を確認しています",
+        scoringCandidateSingular: "候補を評価しています",
+        agentRunningTemplate: "{agent}: 実行中",
+        agentDoneTemplate: "{agent}: 完了",
+        matchComplete: "照合が完了しました",
+      },
+    );
+    expect(events.map((event) => event.detail)).toEqual([
+      "指定された候補を確認しています",
+      "候補を評価しています",
+      "https://acme.example.com/: 実行中",
+      "https://acme.example.com/: 完了",
+      "照合が完了しました",
+    ]);
   });
 
   it("suggests and scores candidates via the LLM when none are named", async () => {
@@ -345,5 +659,126 @@ describe("runMatchSkill", () => {
     );
     expect(markdown.length).toBeGreaterThan(0);
     expect(markdown).not.toContain("undefined");
+  });
+
+  it("uses the first candidate's translated labels for the report and cards", async () => {
+    stubNetwork({
+      scoreJson: {
+        ...DEFAULT_SCORE_JSON,
+        labels: { foundedLabel: "Fondée", fitLabel: "Adéquation" },
+      },
+    });
+    const { markdown, cardLabels } = await runMatchSkill(
+      CONFIG,
+      "payroll software",
+      ["https://acme.example.com", "https://globex.example.com"],
+      () => {},
+      "quelles entreprises devrions-nous cibler ?",
+      "French",
+      {
+        ...RUNTIME_LABEL_DEFAULTS,
+        foundedLabel: "Fondée",
+        fitLabel: "Adéquation",
+      },
+    );
+    expect(cardLabels.founded).toBe("Fondée");
+    expect(cardLabels.fit).toBe("Adéquation");
+    expect(markdown).toContain("Adéquation:");
+  });
+
+  it("uses another successful candidate's labels when the first candidate fails", async () => {
+    stubNetwork({
+      scoreJson: {
+        ...DEFAULT_SCORE_JSON,
+        labels: { foundedLabel: "Fondée", fitLabel: "Adéquation" },
+      },
+    });
+    vi.mocked(fetchWithVariants).mockRejectedValueOnce(new Error("unreachable"));
+    const { cardLabels } = await runMatchSkill(
+      CONFIG,
+      "payroll software",
+      ["https://bad.example.com", "https://good.example.com"],
+      () => {},
+      "quelles entreprises devrions-nous cibler ?",
+      "French",
+      {
+        ...RUNTIME_LABEL_DEFAULTS,
+        foundedLabel: "Fondée",
+        fitLabel: "Adéquation",
+      },
+    );
+    expect(cardLabels.founded).toBe("Fondée");
+    expect(cardLabels.fit).toBe("Adéquation");
+  });
+
+  it("localizes no-candidate output during language-aware discovery", async () => {
+    stubNetwork({
+      suggestJson: {
+        candidates: [],
+        labels: {
+          titleTemplate: "مطابقات العملاء المحتملين لـ: {product}",
+          noneScored: "تعذر تقييم أي شركة مرشحة.",
+          auditRequestTemplate: "حلل {url} كعميل محتمل",
+        },
+      },
+    });
+    const { markdown, cardLabels } = await runMatchSkill(
+      CONFIG,
+      "منصة تحليلات للمبيعات",
+      null,
+      () => {},
+      "ما الشركات التي يجب أن نستهدفها؟",
+      "Arabic",
+      {
+        ...RUNTIME_LABEL_DEFAULTS,
+        auditRequestTemplate: "حلل {url} كعميل محتمل",
+      },
+    );
+    expect(markdown).toContain("تعذر تقييم أي شركة مرشحة.");
+    expect(cardLabels.auditRequestTemplate).toBe(
+      "حلل {url} كعميل محتمل",
+    );
+  });
+
+  it("uses the same ranked report and card structure for buy mode", async () => {
+    stubNetwork({
+      suggestJson: {
+        candidates: [{ name: "IKEA", url: "https://ikea.example.com" }],
+        labels: {
+          titleTemplate: "购买地点：{product}",
+          fitLabel: "购买匹配度",
+          auditHint: "点击查看完整卖家分析 →",
+          auditRequestTemplate: "将 {url} 作为供应商进行分析",
+        },
+      },
+      scoreJson: {
+        companyName: "IKEA",
+        score: 84,
+        description: "IKEA 销售家居用品。",
+        fitReason: "其目录中提供相关产品。",
+        labels: {
+          titleTemplate: "购买地点：{product}",
+          fitLabel: "购买匹配度",
+          auditHint: "点击查看完整卖家分析 →",
+          auditRequestTemplate: "将 {url} 作为供应商进行分析",
+        },
+      },
+    });
+    const result = await runMatchSkill(
+      CONFIG,
+      "羊毛毯",
+      null,
+      () => {},
+      "哪里可以买到羊毛毯？",
+      "Chinese",
+      RUNTIME_LABEL_DEFAULTS,
+      "buy",
+    );
+    expect(result.title).toBe("购买地点：羊毛毯");
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0].companyName).toBe("IKEA");
+    expect(result.markdown).toContain("https://ikea.example.com");
+    expect(result.cardLabels.fit).toBe("购买匹配度");
+    expect(result.cardLabels.auditRequestTemplate).toContain("{url}");
   });
 });

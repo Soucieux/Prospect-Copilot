@@ -166,6 +166,152 @@ describe("routeMessage", () => {
     expect(result.candidates).toBeNull();
   });
 
+  it("treats natural selling intent as discovery without a fixed format", async () => {
+    const spy = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    skill: "match",
+                    url: null,
+                    entity: null,
+                    sellingContext: "羊毛毯",
+                    candidates: null,
+                    language: "Chinese",
+                    runtimeLabels: {},
+                  }),
+                },
+              },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", spy);
+
+    const result = await routeMessage(CONFIG, "我想去卖羊毛毯，如何选择", []);
+
+    expect(result.skill).toBe("match");
+    expect(result.sellingContext).toBe("羊毛毯");
+    expect(result.candidates).toBeNull();
+    const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as {
+      messages: { role: string; content: string }[];
+    };
+    expect(body.messages[0].content).toContain(
+      "never require a fixed\n  sentence template",
+    );
+    expect(body.messages[0].content).toContain(
+      "A product, service, category, market",
+    );
+  });
+
+  it("continues discovery from a product-only reply to the prior nudge", async () => {
+    stubRouterResponse({
+      skill: "match",
+      url: null,
+      entity: null,
+      sellingContext: "羊毛毯",
+      candidates: null,
+      language: "Chinese",
+      runtimeLabels: {},
+    });
+    const result = await routeMessage(CONFIG, "羊毛毯", [
+      { role: "user", content: "我想去卖羊毛毯，如何选择" },
+      { role: "assistant", content: "请告诉我你销售什么。" },
+    ]);
+    expect(result.skill).toBe("match");
+    expect(result.sellingContext).toBe("羊毛毯");
+    expect(result.candidates).toBeNull();
+  });
+
+  it("routes a natural where-to-buy request through the same match skill", async () => {
+    stubRouterResponse({
+      skill: "match",
+      url: null,
+      entity: null,
+      sellingContext: "羊毛毯",
+      matchDirection: "buy",
+      candidates: null,
+      language: "Chinese",
+      runtimeLabels: {},
+    });
+    const result = await routeMessage(CONFIG, "哪里可以买到羊毛毯？", []);
+    expect(result.skill).toBe("match");
+    expect(result.matchDirection).toBe("buy");
+    expect(result.sellingContext).toBe("羊毛毯");
+  });
+
+  it("recovers a referenced product for a multilingual buy follow-up", async () => {
+    const spy = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    skill: "match",
+                    url: null,
+                    entity: null,
+                    sellingContext: "couvertures en laine",
+                    matchDirection: "buy",
+                    candidates: null,
+                    language: "French",
+                    runtimeLabels: {},
+                  }),
+                },
+              },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", spy);
+    const result = await routeMessage(CONFIG, "Où puis-je les acheter ?", [
+      { role: "user", content: "Je cherche des couvertures en laine." },
+      { role: "assistant", content: "Quel type de couverture préférez-vous ?" },
+    ]);
+    expect(result.skill).toBe("match");
+    expect(result.matchDirection).toBe("buy");
+    expect(result.sellingContext).toBe("couvertures en laine");
+    const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as {
+      messages: { role: string; content: string }[];
+    };
+    expect(body.messages[0].content).toContain('"Where can I buy them?"');
+    expect(
+      body.messages.some((item) =>
+        item.content.includes("couvertures en laine"),
+      ),
+    ).toBe(true);
+  });
+
+  it("returns an arbitrary detected language with merged runtime labels", async () => {
+    stubRouterResponse({
+      skill: "match",
+      url: null,
+      entity: null,
+      sellingContext: "منصة تحليلات للمبيعات",
+      candidates: null,
+      language: "Arabic",
+      runtimeLabels: {
+        matchedMatch: "تم تحديد مهمة المطابقة",
+        matchComplete: "اكتملت المطابقة",
+      },
+    });
+    const result = await routeMessage(
+      CONFIG,
+      "ما الشركات التي يجب أن نستهدفها؟",
+      [],
+    );
+    expect(result.language).toBe("Arabic");
+    expect(result.runtimeLabels.matchedMatch).toBe("تم تحديد مهمة المطابقة");
+    expect(result.runtimeLabels.matchComplete).toBe("اكتملت المطابقة");
+    expect(result.runtimeLabels.fetchingTemplate).toContain("{target}");
+  });
+
   it("routes to 'match' with a candidates list when companies are named", async () => {
     stubRouterResponse({
       skill: "match",

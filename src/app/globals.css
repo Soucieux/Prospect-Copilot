@@ -343,6 +343,116 @@ body {
   overflow-x: auto;
 }
 
+.message.assistant .report-document {
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.7;
+  user-select: text;
+}
+
+.message.assistant .report-document > :first-child {
+  margin-top: 0;
+}
+
+.message.assistant .report-document h1 {
+  margin: 24px 0 14px;
+  font-size: 22px;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+}
+
+.message.assistant .report-document h2 {
+  margin: 24px 0 12px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--border);
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.message.assistant .report-document h3 {
+  margin: 18px 0 8px;
+  font-size: 14.5px;
+  line-height: 1.4;
+}
+
+.message.assistant .report-document p,
+.message.assistant .report-document ul,
+.message.assistant .report-document ol {
+  margin: 0 0 14px;
+}
+
+.message.assistant .report-document li + li {
+  margin-top: 5px;
+}
+
+.message.assistant .report-document a {
+  color: var(--accent);
+  overflow-wrap: anywhere;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.message.assistant .report-document a:hover {
+  color: var(--accent-hover);
+}
+
+.message.assistant .report-document a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.message.assistant .report-document blockquote {
+  margin: 16px 0;
+  padding: 11px 14px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: var(--bg-secondary);
+  color: var(--muted);
+}
+
+.message.assistant .report-document blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.message.assistant .report-document table {
+  width: 100%;
+  margin: 14px 0 18px;
+  border-spacing: 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.message.assistant .report-document th {
+  background: var(--bg-secondary);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.message.assistant .report-document th,
+.message.assistant .report-document td {
+  padding: 9px 11px;
+  vertical-align: top;
+}
+
+.message.assistant .report-document tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--bg-secondary) 55%, transparent);
+}
+
+.message.assistant .report-document hr {
+  margin: 22px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.message.assistant .report-document pre {
+  margin: 14px 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-secondary);
+  overflow-x: auto;
+}
+
 .assistant-label {
   display: flex;
   align-items: center;
@@ -436,6 +546,20 @@ body {
 
 .send-button:hover:not(:disabled) {
   background: var(--accent-hover);
+}
+
+.send-button.stop-button {
+  background: var(--text);
+  font-size: 11px;
+}
+
+.send-button.stop-button:hover {
+  background: var(--danger);
+}
+
+.send-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 button {
@@ -643,17 +767,11 @@ button.secondary:hover:not(:disabled) {
   background: var(--bg);
   color: var(--text);
   text-align: left;
-  cursor: pointer;
+  user-select: text;
 }
 
-.match-card:hover:not(:disabled) {
-  background: var(--bg-secondary);
+.match-card:hover {
   border-color: var(--border-strong);
-}
-
-.match-card:disabled {
-  cursor: default;
-  opacity: 0.6;
 }
 
 .match-card-head {
@@ -665,6 +783,7 @@ button.secondary:hover:not(:disabled) {
 
 .match-card-title {
   font-size: 14px;
+  overflow-wrap: anywhere;
 }
 
 .match-card-score {
@@ -680,6 +799,26 @@ button.secondary:hover:not(:disabled) {
   font-size: 12px;
 }
 
+.match-card-url {
+  color: var(--accent);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+.match-card-url:hover {
+  color: var(--accent-hover);
+  text-decoration-color: currentColor;
+}
+
+.match-card-url:focus-visible,
+.match-card-audit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .match-card-description,
 .match-card-fit {
   color: var(--muted);
@@ -692,7 +831,18 @@ button.secondary:hover:not(:disabled) {
   color: var(--text);
 }
 
-.match-card-hint {
-  color: var(--muted);
+.match-card-audit {
+  align-self: flex-start;
+  margin-top: auto;
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text);
   font-size: 12px;
+}
+
+.match-card-audit:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-hover);
 }

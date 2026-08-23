@@ -6,6 +6,11 @@
 import { chatCompletion, extractJsonObject, type LlmConfig } from "@/lib/llm";
 import { ROUTER_RESULT_SCHEMA, type RouterResult } from "@/lib/agent/schemas";
 import { normalizeUrl } from "@/lib/extract/fetch-page";
+import {
+  RUNTIME_LABEL_DEFAULTS,
+  mergeRuntimeLabels,
+  type RuntimeLabels,
+} from "@/lib/localization";
 
 const ROUTER_SYSTEM_PROMPT = `You classify user messages for a sales intelligence assistant.
 Available skills:
@@ -14,34 +19,82 @@ Available skills:
 - qualify: BANT/MEDDIC lead qualification for a URL. Exactly ONE company.
 - contacts: find decision makers / buying committee for a URL or company. Exactly ONE company.
 - outreach: draft outreach emails for a company or person. Exactly ONE company.
-- match: find and rank candidate companies as prospects for what the user sells (e.g. "who should we target", "what company should I sell it to", "who is a good customer for X", "which companies would want X", "find companies that need X", "rank these prospects for fit"). This applies just as much when phrased as a question as when phrased as a request - a question asking who to sell to is match, not none. Use this whenever ZERO or TWO-OR-MORE companies are involved - never for exactly one named company, which always uses one of the skills above instead.
+- match: find and rank candidate companies or places for a product. This covers BOTH directions with the exact same skill and result structure:
+  - sell: rank companies likely to buy what the user sells (e.g. "who should we target", "where can I sell X", "who is a good customer for X", "find companies that need X").
+  - buy: rank companies, retailers, distributors, suppliers, or other places likely to sell the requested product (e.g. "where can I buy X", "who sells X", "find places to purchase X").
+  Questions and requests are handled identically. Use match whenever ZERO or TWO-OR-MORE candidate organizations are involved - never for exactly one named company, which uses one of the skills above instead.
 Rules:
 - Company count decides prospect/research/qualify/contacts/outreach vs match: exactly one named company -> pick from the first five based on intent; zero or several -> match.
 - Extract the company URL when present (prefer https:// form); otherwise null. Only set this for a single-company skill.
 - Extract the company/person name into entity when no URL is present. Only set this for a single-company skill.
 - For match, extract every company name or URL the user explicitly listed into candidates (verbatim, as an array); when none are named (discovery mode), candidates is null.
-- Answer none only for messages with no prospecting intent at all (greetings, small talk, unrelated questions) - a question about who to sell to or which companies to target is match, never none.
+- For match, set matchDirection to "buy" when the user wants to buy, source,
+  purchase, order, or find sellers of the product. Set it to "sell" when the
+  user wants to sell, market, offer, find buyers, or find customers. Use "sell"
+  for other skills and as the backward-compatible default.
+- Interpret selling intent semantically in ANY language; never require a fixed
+  sentence template such as "we sell X". A user saying that they sell, want to
+  sell, plan to offer, market, or find buyers/customers for a product or service
+  has supplied a sellingContext. This remains true when the accompanying
+  question is brief or indirect, such as "how should I choose?", "where do I
+  start?", or "who needs this?". For example, "I want to sell wool blankets,
+  how should I choose?" and equivalent wording in any language are match
+  requests with "wool blankets" as sellingContext.
+- If the assistant previously asked what the user sells, a short product-only
+  reply supplies sellingContext and continues match discovery.
+- For buy requests, sellingContext stores the product the user wants to buy;
+  do not require the user to phrase it as something they sell. Recover that
+  product from the ENTIRE conversation when the latest request uses a reference
+  such as "it", "this", "that", "them", or "these" in ANY language. For
+  example, after discussing wool blankets, "Where can I buy them?" is match,
+  matchDirection is "buy", and sellingContext is "wool blankets".
+- candidates contains ONLY organizations explicitly named by the user as
+  prospective buyers in sell mode or prospective sellers in buy mode, plus
+  their URLs. A product, service, category, market, geography, or other common
+  noun is never a candidate company. Do not copy a sellingContext term into
+  candidates.
+- Answer none only for messages with no sales or purchase-discovery intent at
+  all (greetings, small talk, unrelated questions). Questions about where to
+  sell or buy a product are match, never none.
 - Also look across the ENTIRE conversation (not just the latest message) for
-  a stated description of what the user's own company sells or its ideal
-  customer profile. Extract it into sellingContext verbatim or paraphrased;
-  otherwise null. Never guess or infer a product from the prospect being
-  discussed - only from what the user has explicitly said about themselves.
+  the product/service relevant to the current buy or sell request, plus any
+  stated customer or purchase criteria. Extract it into sellingContext verbatim
+  or paraphrased; otherwise null. Never invent a product that the user did not
+  explicitly mention.
+- Detect the language of the LATEST user message. Return its commonly used
+  language name in "language". URLs, company names, product names, and earlier
+  messages must not override the language used by the latest user-authored text.
+- Translate every value in the RUNTIME LABELS object into that detected
+  language. Preserve every key and every {placeholder} exactly. Product names,
+  company names, URLs, numbers, and internal enum values are never translated.
 
-Respond with ONLY JSON: {"skill": "prospect|research|qualify|contacts|outreach|match|none", "url": <string|null>, "entity": <string|null>, "sellingContext": <string|null>, "candidates": <string[]|null>}`;
+RUNTIME LABELS:
+${JSON.stringify(RUNTIME_LABEL_DEFAULTS)}
 
-const NONE_RESULT: RouterResult = {
+Respond with ONLY JSON: {"skill": "prospect|research|qualify|contacts|outreach|match|none", "url": <string|null>, "entity": <string|null>, "sellingContext": <string|null>, "matchDirection": "sell|buy", "candidates": <string[]|null>, "language": "<detected language>", "runtimeLabels": {...same keys as RUNTIME LABELS, translated}}`;
+
+/** A routing result with a complete, validated runtime-label set. */
+export type ResolvedRouterResult = Omit<RouterResult, "runtimeLabels"> & {
+  runtimeLabels: RuntimeLabels;
+};
+
+const NONE_RESULT: ResolvedRouterResult = {
   skill: "none",
   url: null,
   entity: null,
   sellingContext: null,
+  matchDirection: "sell",
   candidates: null,
+  language: "English",
+  runtimeLabels: RUNTIME_LABEL_DEFAULTS,
 };
 
 /**
  * Classify a user message into a skill invocation or plain chat.
  * @param config LLM credentials
  * @param message the user's chat message
- * @param history prior conversation turns, scanned for a stated selling context
+ * @param history prior turns, scanned for the current product context
+ * @param signal cancels routing and any company-name resolution
  * @returns routing decision; parse failures degrade to none
  * @throws LlmError propagated when the endpoint itself fails
  */
@@ -49,7 +102,8 @@ export async function routeMessage(
   config: LlmConfig,
   message: string,
   history: { role: "user" | "assistant"; content: string }[] = [],
-): Promise<RouterResult> {
+  signal?: AbortSignal,
+): Promise<ResolvedRouterResult> {
   const raw = await chatCompletion(
     config,
     [
@@ -57,18 +111,22 @@ export async function routeMessage(
       ...history,
       { role: "user", content: message },
     ],
-    { temperature: 0, jsonMode: true },
+    { temperature: 0, jsonMode: true, signal },
   );
   const jsonText = extractJsonObject(raw);
   if (!jsonText) return NONE_RESULT;
-  let routing: RouterResult;
+  let parsed: RouterResult;
   try {
-    routing = ROUTER_RESULT_SCHEMA.parse(JSON.parse(jsonText));
+    parsed = ROUTER_RESULT_SCHEMA.parse(JSON.parse(jsonText));
   } catch {
     return NONE_RESULT;
   }
+  const routing: ResolvedRouterResult = {
+    ...parsed,
+    runtimeLabels: mergeRuntimeLabels(parsed.runtimeLabels),
+  };
   if (!routing.url && routing.entity) {
-    const resolved = await resolveCompanyUrl(config, routing.entity);
+    const resolved = await resolveCompanyUrl(config, routing.entity, signal);
     if (resolved) return { ...routing, url: resolved };
   }
   return routing;
@@ -82,11 +140,15 @@ const NON_COMPANY_HOST_PATTERN =
  * Whether a URL looks like a company's own site rather than a social,
  * reference, or aggregator platform.
  * @param url the candidate URL
- * @returns false for unparseable URLs or known non-company hosts
+ * @returns false for unparseable URLs, single-label hosts, or known
+ *   non-company hosts
  */
 export function isLikelyCompanyUrl(url: string): boolean {
   try {
-    return !NON_COMPANY_HOST_PATTERN.test(new URL(url).hostname);
+    const hostname = new URL(url).hostname;
+    return (
+      hostname.includes(".") && !NON_COMPANY_HOST_PATTERN.test(hostname)
+    );
   } catch {
     return false;
   }
@@ -103,11 +165,13 @@ If you do not know a real, specific URL for this name, respond with exactly
  * wrong or unknown answer just means no page to work from, not a bad report.
  * @param config LLM credentials
  * @param entity the company name to resolve
+ * @param signal cancels the provider request
  * @returns the guessed URL, or null when unknown/unparseable/not company-like
  */
 export async function resolveCompanyUrl(
   config: LlmConfig,
   entity: string,
+  signal?: AbortSignal,
 ): Promise<string | null> {
   try {
     const raw = await chatCompletion(
@@ -116,13 +180,14 @@ export async function resolveCompanyUrl(
         { role: "system", content: URL_GUESS_SYSTEM_PROMPT },
         { role: "user", content: entity },
       ],
-      { temperature: 0 },
+      { temperature: 0, signal },
     );
     const candidate = raw.trim().replace(/^["'`]+|["'`]+$/g, "");
     if (!candidate || candidate.toLowerCase() === "unknown") return null;
     const url = normalizeUrl(candidate).toString();
     return isLikelyCompanyUrl(url) ? url : null;
-  } catch {
+  } catch (caught) {
+    signal?.throwIfAborted();
     return null;
   }
 }

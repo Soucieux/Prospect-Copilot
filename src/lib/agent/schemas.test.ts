@@ -26,6 +26,47 @@ describe("ROUTER_RESULT_SCHEMA", () => {
       candidates: null,
     });
     expect(parsed.candidates).toBeNull();
+    expect(parsed.matchDirection).toBe("sell");
+  });
+
+  it("accepts buy direction while preserving the match result shape", () => {
+    const parsed = ROUTER_RESULT_SCHEMA.parse({
+      skill: "match",
+      url: null,
+      entity: null,
+      sellingContext: "羊毛毯",
+      matchDirection: "buy",
+      candidates: null,
+    });
+    expect(parsed.skill).toBe("match");
+    expect(parsed.matchDirection).toBe("buy");
+    expect(parsed.sellingContext).toBe("羊毛毯");
+  });
+
+  it("treats a null direction from older router output as sell mode", () => {
+    const parsed = ROUTER_RESULT_SCHEMA.parse({
+      skill: "prospect",
+      url: "https://acme.example.com",
+      entity: null,
+      sellingContext: null,
+      matchDirection: null,
+      candidates: null,
+    });
+    expect(parsed.matchDirection).toBe("sell");
+  });
+
+  it("accepts any recognized language and translated runtime labels", () => {
+    const parsed = ROUTER_RESULT_SCHEMA.parse({
+      skill: "match",
+      url: null,
+      entity: null,
+      sellingContext: "分析ツール",
+      candidates: null,
+      language: "Japanese",
+      runtimeLabels: { matchComplete: "照合が完了しました" },
+    });
+    expect(parsed.language).toBe("Japanese");
+    expect(parsed.runtimeLabels.matchComplete).toBe("照合が完了しました");
   });
 });
 
@@ -52,6 +93,18 @@ describe("CHAT_EVENT_SCHEMA", () => {
             founded: "1998",
           },
         ],
+        matchLabels: {
+          founded: "Founded",
+          fit: "Fit",
+          auditHint: "Click →",
+          auditRequestTemplate: "Analyze {url} as a prospect",
+        },
+        scoreLabels: {
+          grade: "Grade",
+          confidence: "confidence",
+          confidenceValue: "High",
+          report: "match report",
+        },
         markdown: "# Matches\n",
       },
     });

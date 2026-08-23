@@ -19,6 +19,8 @@ export interface LlmCallOptions {
   /** Request a JSON-mode response from endpoints that support it. */
   jsonMode?: boolean;
   timeoutMs?: number;
+  /** Cancels the provider request when the originating chat request stops. */
+  signal?: AbortSignal;
 }
 
 export class LlmError extends Error {
@@ -95,6 +97,9 @@ export async function chatCompletion(
   const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const abortFromCaller = (): void => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) abortFromCaller();
+  else options.signal?.addEventListener("abort", abortFromCaller, { once: true });
   try {
     const response = await fetch(chatCompletionsUrl(config.baseUrl), {
       method: "POST",
@@ -114,6 +119,7 @@ export async function chatCompletion(
     return content;
   } finally {
     clearTimeout(timer);
+    options.signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
@@ -133,6 +139,9 @@ export async function* streamChatCompletion(
   const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const abortFromCaller = (): void => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) abortFromCaller();
+  else options.signal?.addEventListener("abort", abortFromCaller, { once: true });
   try {
     const response = await fetch(chatCompletionsUrl(config.baseUrl), {
       method: "POST",
@@ -168,6 +177,7 @@ export async function* streamChatCompletion(
     if (tail !== null) yield tail;
   } finally {
     clearTimeout(timer);
+    options.signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 

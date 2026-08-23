@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isPublicIp, normalizeUrl } from "./fetch-page";
+import { fetchPage, isPublicIp, normalizeUrl } from "./fetch-page";
 
 describe("normalizeUrl", () => {
   it("adds https when no scheme is given", () => {
@@ -42,5 +42,15 @@ describe("isPublicIp", () => {
   it("rejects IPv6 loopback and unique-local", () => {
     expect(isPublicIp("::1")).toBe(false);
     expect(isPublicIp("fd00::1")).toBe(false);
+  });
+});
+
+describe("fetchPage", () => {
+  it("stops before network resolution when the caller is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      fetchPage("https://example.com", controller.signal),
+    ).rejects.toMatchObject({ name: "AbortError" });
   });
 });

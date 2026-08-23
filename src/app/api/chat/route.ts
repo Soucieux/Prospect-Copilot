@@ -17,6 +17,13 @@ import {
 } from "@/lib/skills/standalone";
 import { runMatchSkill } from "@/lib/skills/match";
 import type { ChatEvent } from "@/lib/agent/schemas";
+import {
+  RUNTIME_LABEL_DEFAULTS,
+  formatRuntimeLabel,
+  localizedSkillName,
+  type LocalizedSkillName,
+  type RuntimeLabels,
+} from "@/lib/localization";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -64,6 +71,32 @@ function sseFrame(event: ChatEvent): string {
 }
 
 /**
+ * Build the localized scorecard labels stored with one report.
+ * @param labels complete runtime translations for the request
+ * @param skill internal report kind
+ * @param confidenceValue localized confidence value when the report has one
+ * @returns localized scorecard chrome
+ */
+function scoreLabels(
+  labels: RuntimeLabels,
+  skill: LocalizedSkillName,
+  confidenceValue: string = "",
+): {
+  grade: string;
+  confidence: string;
+  confidenceValue: string;
+  report: string;
+} {
+  const skillName = localizedSkillName(labels, skill);
+  return {
+    grade: labels.gradeLabel,
+    confidence: labels.confidenceLabel,
+    confidenceValue,
+    report: formatRuntimeLabel(labels.reportTemplate, { skill: skillName }),
+  };
+}
+
+/**
  * Handle one /api/chat request: route the message to a skill (or plain
  * chat) and stream progress/tokens/report/error events back as SSE.
  * @param request the incoming chat request
@@ -91,21 +124,39 @@ export async function POST(request: NextRequest): Promise<Response> {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const send = (event: ChatEvent): void =>
-        controller.enqueue(encoder.encode(sseFrame(event)));
+      const send = (event: ChatEvent): void => {
+        if (request.signal.aborted) return;
+        try {
+          controller.enqueue(encoder.encode(sseFrame(event)));
+        } catch {
+          // The browser may have stopped the request between the signal check
+          // and enqueue; upstream work receives the same abort signal.
+        }
+      };
+      let runtimeLabels = RUNTIME_LABEL_DEFAULTS;
       try {
-        const routing = await routeMessage(config, message, history);
+        const routing = await routeMessage(
+          config,
+          message,
+          history,
+          request.signal,
+        );
+        runtimeLabels = routing.runtimeLabels;
         if (routing.skill === "prospect" && routing.url) {
           send({
             type: "phase",
             phase: "routing",
-            detail: "Matched the prospect audit skill - starting full analysis",
+            detail: runtimeLabels.matchedProspect,
           });
           const outcome = await runProspectPipeline(
             config,
             routing.url,
             send,
             routing.sellingContext,
+            message,
+            routing.language,
+            runtimeLabels,
+            request.signal,
           );
           send({
             type: "report",
@@ -116,12 +167,18 @@ export async function POST(request: NextRequest): Promise<Response> {
               score: outcome.composite.score,
               grade: outcome.composite.grade,
               confidence: outcome.composite.confidence,
-              categories: outcome.composite.weighted.map((row) => ({
-                category: row.category,
+              categories: outcome.composite.weighted.map((row, index) => ({
+                category: outcome.categoryLabels[index] ?? row.category,
                 score: row.score,
                 weight: row.weight,
               })),
               matches: null,
+              matchLabels: null,
+              scoreLabels: scoreLabels(
+                runtimeLabels,
+                "prospect",
+                outcome.confidenceLabel,
+              ),
               markdown: outcome.markdown,
             },
           });
@@ -129,19 +186,30 @@ export async function POST(request: NextRequest): Promise<Response> {
           if (!routing.sellingContext && !routing.candidates?.length) {
             send({
               type: "token",
-              text: 'Tell me what you sell (e.g. "we sell payroll software for mid-market companies") and I can find and rank the best-fit companies for it.',
+              text:
+                routing.matchDirection === "buy"
+                  ? runtimeLabels.matchBuyNudge
+                  : runtimeLabels.matchNudge,
             });
           } else {
             send({
               type: "phase",
               phase: "routing",
-              detail: "Matched the match skill - finding candidate prospects",
+              detail:
+                routing.matchDirection === "buy"
+                  ? runtimeLabels.matchedBuyMatch
+                  : runtimeLabels.matchedMatch,
             });
-            const { markdown, title, matches } = await runMatchSkill(
+            const { markdown, title, matches, cardLabels } = await runMatchSkill(
               config,
               routing.sellingContext,
               routing.candidates,
               send,
+              message,
+              routing.language,
+              runtimeLabels,
+              routing.matchDirection,
+              request.signal,
             );
             send({
               type: "report",
@@ -154,6 +222,8 @@ export async function POST(request: NextRequest): Promise<Response> {
                 confidence: null,
                 categories: null,
                 matches,
+                matchLabels: cardLabels,
+                scoreLabels: scoreLabels(runtimeLabels, "match"),
                 markdown,
               },
             });
@@ -163,7 +233,9 @@ export async function POST(request: NextRequest): Promise<Response> {
           send({
             type: "phase",
             phase: "routing",
-            detail: `Matched the ${skill} skill`,
+            detail: formatRuntimeLabel(runtimeLabels.matchedSkillTemplate, {
+              skill: localizedSkillName(runtimeLabels, skill),
+            }),
           });
           const { markdown, title } = await runStandaloneSkill(
             config,
@@ -172,6 +244,10 @@ export async function POST(request: NextRequest): Promise<Response> {
             routing.entity ?? null,
             send,
             routing.sellingContext,
+            message,
+            routing.language,
+            runtimeLabels,
+            request.signal,
           );
           send({
             type: "report",
@@ -184,20 +260,32 @@ export async function POST(request: NextRequest): Promise<Response> {
               confidence: null,
               categories: null,
               matches: null,
+              matchLabels: null,
+              scoreLabels: scoreLabels(runtimeLabels, skill),
               markdown,
             },
           });
         } else {
-          await streamPlainChat(config, message, history, send);
+          await streamPlainChat(
+            config,
+            message,
+            history,
+            send,
+            request.signal,
+          );
         }
       } catch (caught) {
-        const errorMessage =
-          caught instanceof LlmError
-            ? caught.message
-            : `Request failed: ${String(caught)}`;
+        if (request.signal.aborted) return;
+        const errorMessage = caught instanceof LlmError
+          ? `${runtimeLabels.requestFailed} (${caught.status})`
+          : runtimeLabels.requestFailed;
         send({ type: "error", message: errorMessage });
       } finally {
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // Already closed by a cancelled browser request.
+        }
       }
     },
   });
@@ -216,18 +304,24 @@ export async function POST(request: NextRequest): Promise<Response> {
  * @param message the new user message
  * @param history prior conversation turns
  * @param send event emitter
+ * @param signal cancels provider streaming
  */
 async function streamPlainChat(
   config: LlmConfig,
   message: string,
   history: { role: "user" | "assistant"; content: string }[],
   send: (event: ChatEvent) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
-  for await (const delta of streamChatCompletion(config, [
-    { role: "system", content: PLAIN_CHAT_SYSTEM_PROMPT },
-    ...history,
-    { role: "user", content: message },
-  ])) {
+  for await (const delta of streamChatCompletion(
+    config,
+    [
+      { role: "system", content: PLAIN_CHAT_SYSTEM_PROMPT },
+      ...history,
+      { role: "user", content: message },
+    ],
+    { signal },
+  )) {
     send({ type: "token", text: delta });
   }
 }
