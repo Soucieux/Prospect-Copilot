@@ -25,6 +25,14 @@ marketplaces. The request can use natural wording in any language, and a
 follow-up such as "Where can I buy them?" recovers the product from the
 conversation instead of requiring a fixed prompt format.
 
+An explicit city, region, or country filters either direction. For buy
+requests, candidates must sell, ship, deliver, or serve the requested location;
+for sell requests, candidates must operate, purchase, or have a relevant
+business presence there. The latest explicit location wins in follow-ups such
+as "What about Montreal?" When no location is supplied, the detected language
+continues to provide the default market signal. The app does not access browser
+geolocation automatically.
+
 | Companies you name | No product mentioned | Product mentioned |
 | --- | --- | --- |
 | **None** | Plain chat | The LLM suggests candidates, quick-scores up to 12, and returns up to 8 ranked by fit |
@@ -53,6 +61,8 @@ model's guesses at all.
 we sell payroll software for mid-market companies, who should we target?
 where can I buy wool blankets?
 where can I sell wool blankets?
+where can I buy wool blankets in Toronto?
+where can I sell payroll software in Québec?
 we sell payroll software, analyze https://stripe.com as a prospect
 we sell payroll software, rank Acme Corp, Globex, and Initech for fit
 compare Acme Corp, Globex, and Initech

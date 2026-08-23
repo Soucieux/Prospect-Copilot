@@ -161,6 +161,9 @@ describe("renderMatchReport", () => {
     const labels = {
       titleTemplate: "Coincidencias para: {product}",
       titleFallback: "Coincidencias",
+      titleWithLocationTemplate:
+        "Coincidencias para: {product} en {location}",
+      locationTitleTemplate: "Coincidencias en {location}",
       noneScored: "Sin candidatos.",
       rankedTemplateSingular: "1 de {total} candidato:",
       rankedTemplatePlural: "{ranked} de {total} candidatos:",
@@ -187,6 +190,17 @@ describe("renderMatchReport", () => {
     expect(markdown).toContain("Encaje:");
     expect(markdown).toContain("2 candidatos omitidos.");
     expect(markdown).toContain("Pregunta por cualquiera de estos.");
+
+    const located = renderMatchReport(
+      "software de nómina",
+      [acme],
+      1,
+      labels,
+      "Québec",
+    );
+    expect(located.title).toBe(
+      "Coincidencias para: software de nómina en Québec",
+    );
   });
 });
 
@@ -325,15 +339,19 @@ describe("resolveCandidates", () => {
       "plateforme de paie pour entreprises québécoises",
       "Trouvez des entreprises au Québec",
       "French",
+      "sell",
+      "Québec",
     );
     const call = vi.mocked(fetch).mock.calls[0];
     const body = JSON.parse(String(call[1]?.body)) as {
       messages: { content: string }[];
     };
-    expect(body.messages[0].content).toMatch(
-      /explicit country, region, or\s+market/i,
+    expect(body.messages[0].content).toContain(
+      "REQUESTED LOCATION, it is a hard discovery",
     );
-    expect(body.messages[1].content).toContain("Québec");
+    expect(body.messages[1].content).toContain(
+      "REQUESTED LOCATION: Québec",
+    );
   });
 
   it("discovers sellers with the existing candidate pipeline in buy mode", async () => {
@@ -345,6 +363,7 @@ describe("resolveCandidates", () => {
       "哪里可以买到羊毛毯？",
       "Chinese",
       "buy",
+      "多伦多",
     );
     const call = vi.mocked(fetch).mock.calls[0];
     const body = JSON.parse(String(call[1]?.body)) as {
@@ -355,6 +374,28 @@ describe("resolveCandidates", () => {
     );
     expect(body.messages[1].content).toContain("MATCH DIRECTION: buy");
     expect(body.messages[1].content).toContain("PRODUCT CONTEXT: 羊毛毯");
+    expect(body.messages[1].content).toContain("REQUESTED LOCATION: 多伦多");
+  });
+
+  it("retains language-based market inference when no location is supplied", async () => {
+    stubNetwork({ suggestJson: { candidates: [] } });
+    await resolveCandidates(
+      CONFIG,
+      null,
+      "payroll software",
+      "quali aziende dovremmo contattare?",
+      "Italian",
+    );
+    const call = vi.mocked(fetch).mock.calls[0];
+    const body = JSON.parse(String(call[1]?.body)) as {
+      messages: { content: string }[];
+    };
+    expect(body.messages[0].content).toContain(
+      "only when REQUESTED LOCATION is absent",
+    );
+    expect(body.messages[1].content).toContain(
+      "REQUESTED LOCATION: not specified",
+    );
   });
 });
 
@@ -510,6 +551,7 @@ describe("quickScoreCandidate", () => {
       undefined,
       null,
       "buy",
+      "多伦多",
     );
     const call = vi.mocked(fetch).mock.calls[0];
     const body = JSON.parse(String(call[1]?.body)) as {
@@ -517,6 +559,34 @@ describe("quickScoreCandidate", () => {
     };
     expect(body.messages[1].content).toContain("MATCH DIRECTION: buy");
     expect(body.messages[1].content).toContain("WHAT WE WANT TO BUY: 羊毛毯");
+    expect(body.messages[1].content).toContain("REQUESTED LOCATION: 多伦多");
+    expect(body.messages[0].content).toContain(
+      "sells, ships, delivers, or serves that location",
+    );
+  });
+
+  it("applies a requested region when scoring sell candidates", async () => {
+    stubNetwork({});
+    await quickScoreCandidate(
+      CONFIG,
+      "logiciel de paie",
+      "https://acme.example.com",
+      "Où vendre un logiciel de paie au Québec ?",
+      "French",
+      undefined,
+      null,
+      "sell",
+      "Québec",
+    );
+    const call = vi.mocked(fetch).mock.calls[0];
+    const body = JSON.parse(String(call[1]?.body)) as {
+      messages: { content: string }[];
+    };
+    expect(body.messages[1].content).toContain("MATCH DIRECTION: sell");
+    expect(body.messages[1].content).toContain("REQUESTED LOCATION: Québec");
+    expect(body.messages[0].content).toContain(
+      "operates, purchases, or has a",
+    );
   });
 
   it("omits labels entirely when no labelsToTranslate is given", async () => {
@@ -746,6 +816,7 @@ describe("runMatchSkill", () => {
         candidates: [{ name: "IKEA", url: "https://ikea.example.com" }],
         labels: {
           titleTemplate: "购买地点：{product}",
+          titleWithLocationTemplate: "在 {location} 购买：{product}",
           fitLabel: "购买匹配度",
           auditHint: "点击查看完整卖家分析 →",
           auditRequestTemplate: "将 {url} 作为供应商进行分析",
@@ -758,6 +829,7 @@ describe("runMatchSkill", () => {
         fitReason: "其目录中提供相关产品。",
         labels: {
           titleTemplate: "购买地点：{product}",
+          titleWithLocationTemplate: "在 {location} 购买：{product}",
           fitLabel: "购买匹配度",
           auditHint: "点击查看完整卖家分析 →",
           auditRequestTemplate: "将 {url} 作为供应商进行分析",
@@ -773,8 +845,9 @@ describe("runMatchSkill", () => {
       "Chinese",
       RUNTIME_LABEL_DEFAULTS,
       "buy",
+      "多伦多",
     );
-    expect(result.title).toBe("购买地点：羊毛毯");
+    expect(result.title).toBe("在 多伦多 购买：羊毛毯");
     expect(result.matches).toHaveLength(1);
     expect(result.matches[0].companyName).toBe("IKEA");
     expect(result.markdown).toContain("https://ikea.example.com");

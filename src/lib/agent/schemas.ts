@@ -47,6 +47,8 @@ export const ROUTER_RESULT_SCHEMA = z.object({
     .nullish()
     .default("sell")
     .transform((direction) => direction ?? "sell"),
+  /** Explicit city, region, or country requested for matching; null otherwise. */
+  matchLocation: z.string().trim().min(1).nullable().default(null),
   /** Companies explicitly named as match candidates, verbatim; null otherwise. */
   candidates: z.array(z.string()).nullable(),
   /** Language recognized from the latest user message, not scraped content. */

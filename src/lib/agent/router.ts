@@ -32,6 +32,11 @@ Rules:
   purchase, order, or find sellers of the product. Set it to "sell" when the
   user wants to sell, market, offer, find buyers, or find customers. Use "sell"
   for other skills and as the backward-compatible default.
+- For match, extract an explicitly requested city, region, or country into
+  matchLocation. Preserve the place name in the user's language; otherwise
+  return null. Never infer matchLocation from the detected language, IP address,
+  a company address, or your own assumptions. The latest explicit location
+  overrides earlier locations in the conversation.
 - Interpret selling intent semantically in ANY language; never require a fixed
   sentence template such as "we sell X". A user saying that they sell, want to
   sell, plan to offer, market, or find buyers/customers for a product or service
@@ -48,6 +53,11 @@ Rules:
   such as "it", "this", "that", "them", or "these" in ANY language. For
   example, after discussing wool blankets, "Where can I buy them?" is match,
   matchDirection is "buy", and sellingContext is "wool blankets".
+- A location-only follow-up continues the previous match direction and product.
+  For example, after "Where can I buy wool blankets in Toronto?", the follow-up
+  "What about Montreal?" remains match with matchDirection "buy",
+  sellingContext "wool blankets", and matchLocation "Montreal". Apply the same
+  rule in ANY language and for sell mode.
 - candidates contains ONLY organizations explicitly named by the user as
   prospective buyers in sell mode or prospective sellers in buy mode, plus
   their URLs. A product, service, category, market, geography, or other common
@@ -71,7 +81,7 @@ Rules:
 RUNTIME LABELS:
 ${JSON.stringify(RUNTIME_LABEL_DEFAULTS)}
 
-Respond with ONLY JSON: {"skill": "prospect|research|qualify|contacts|outreach|match|none", "url": <string|null>, "entity": <string|null>, "sellingContext": <string|null>, "matchDirection": "sell|buy", "candidates": <string[]|null>, "language": "<detected language>", "runtimeLabels": {...same keys as RUNTIME LABELS, translated}}`;
+Respond with ONLY JSON: {"skill": "prospect|research|qualify|contacts|outreach|match|none", "url": <string|null>, "entity": <string|null>, "sellingContext": <string|null>, "matchDirection": "sell|buy", "matchLocation": <string|null>, "candidates": <string[]|null>, "language": "<detected language>", "runtimeLabels": {...same keys as RUNTIME LABELS, translated}}`;
 
 /** A routing result with a complete, validated runtime-label set. */
 export type ResolvedRouterResult = Omit<RouterResult, "runtimeLabels"> & {
@@ -84,6 +94,7 @@ const NONE_RESULT: ResolvedRouterResult = {
   entity: null,
   sellingContext: null,
   matchDirection: "sell",
+  matchLocation: null,
   candidates: null,
   language: "English",
   runtimeLabels: RUNTIME_LABEL_DEFAULTS,

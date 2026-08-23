@@ -44,6 +44,8 @@ function mergeLabels(defaults: LabelSet, translated: unknown): LabelSet {
 export const MATCH_REPORT_LABELS: LabelSet = {
   titleTemplate: "Prospect matches for: {product}",
   titleFallback: "Prospect matches",
+  titleWithLocationTemplate: "Prospect matches for: {product} in {location}",
+  locationTitleTemplate: "Prospect matches in {location}",
   noneScored:
     "No candidate companies could be scored. Try naming a few companies directly.",
   rankedTemplateSingular: "Ranked {ranked} of {total} candidate considered:",
@@ -66,6 +68,8 @@ export const MATCH_REPORT_LABELS: LabelSet = {
 export const BUY_MATCH_REPORT_LABELS: LabelSet = {
   titleTemplate: "Places to buy: {product}",
   titleFallback: "Places to buy",
+  titleWithLocationTemplate: "Places to buy: {product} in {location}",
+  locationTitleTemplate: "Places to buy in {location}",
   noneScored:
     "No sellers or retailers could be scored. Try naming a few places directly.",
   rankedTemplateSingular: "Ranked {ranked} of {total} place considered:",
@@ -139,6 +143,14 @@ Follow MATCH DIRECTION exactly:
 - buy: judge whether the candidate is a credible place to buy WHAT WE WANT TO
   BUY, based only on evidence that it sells, distributes, supplies, or lists
   that product.
+When a REQUESTED LOCATION is provided, treat geographic fit as a required part
+of the score and explain it in fitReason:
+- sell: look for evidence that the candidate operates, purchases, or has a
+  relevant business presence in that location.
+- buy: look for evidence that the candidate has stores there or explicitly
+  sells, ships, delivers, or serves that location.
+Do not claim geographic availability without evidence in the briefing. When
+location fit is not publicly verifiable, say so and lower the score.
 When the product context is absent, judge only generic company relevance and
 readiness signals - do not assume any particular product category.
 ${NEVER_FABRICATE_RULES}
@@ -160,12 +172,19 @@ null when you are not confident of the exact URL. A wrong or missing URL just
 means that suggestion gets skipped later, so only include url when you are
 reasonably sure of it. The name field must contain an actual organization's
 name, never the product, a generic category, or a market description.
+When the user message contains a REQUESTED LOCATION, it is a hard discovery
+constraint that overrides language-based market inference:
+- sell: suggest buyers that operate, purchase, or have a relevant business
+  presence in the requested location.
+- buy: suggest sellers with stores there or known sales, shipping, delivery,
+  or service coverage there.
+Prefer candidates whose location fit you know rather than globally famous but
+geographically uncertain candidates. Never invent a local branch or coverage.
 The user message contains a DETECTED RESPONSE LANGUAGE. Use that dynamically
 as a market signal for any language, without relying on a fixed
 language list: suggest companies that meaningfully operate, sell, or publish
-for markets where that language is used. An explicit country, region, or
-market in the latest message or product context always overrides the inferred
-language market. Do not replace or translate company names, brands, or URLs.
+for markets where that language is used only when REQUESTED LOCATION is absent.
+Do not replace or translate company names, brands, URLs, or requested locations.
 The user message also contains a LABELS object. Translate every label value
 into the detected language, preserving every key and every {placeholder}.
 Respond with ONLY a JSON object of this exact shape:
@@ -198,6 +217,7 @@ export function rankCandidates(
  * @param ranked the top candidates, already sorted descending by score
  * @param totalConsidered how many candidates were scored before truncation
  * @param labels localized report labels
+ * @param matchLocation explicit geographic requirement, when supplied
  * @returns the report markdown and a short title for the report card
  */
 export function renderMatchReport(
@@ -205,10 +225,20 @@ export function renderMatchReport(
   ranked: CandidateScore[],
   totalConsidered: number,
   labels: LabelSet = MATCH_REPORT_LABELS,
+  matchLocation: string | null = null,
 ): { markdown: string; title: string; matches: CandidateScore[] } {
-  const title = sellingContext
-    ? labels.titleTemplate.replace("{product}", sellingContext)
-    : labels.titleFallback;
+  const title = matchLocation
+    ? sellingContext
+      ? formatRuntimeLabel(labels.titleWithLocationTemplate, {
+          product: sellingContext,
+          location: matchLocation,
+        })
+      : formatRuntimeLabel(labels.locationTitleTemplate, {
+          location: matchLocation,
+        })
+    : sellingContext
+      ? labels.titleTemplate.replace("{product}", sellingContext)
+      : labels.titleFallback;
 
   if (ranked.length === 0) {
     return {
@@ -266,6 +296,8 @@ export function renderMatchReport(
  * @param sellingContext product context extracted by the router
  * @param requesterMessage latest user-authored message
  * @param responseLanguage language recognized from the latest message
+ * @param matchDirection whether candidates are buyers or sellers
+ * @param matchLocation explicit geographic requirement, when supplied
  * @param signal cancels candidate discovery
  * @returns suggested identifiers and localized report labels
  */
@@ -275,6 +307,7 @@ async function suggestCandidates(
   requesterMessage: string,
   responseLanguage: string,
   matchDirection: MatchDirection = "sell",
+  matchLocation: string | null = null,
   signal?: AbortSignal,
 ): Promise<{ identifiers: CandidateIdentifier[]; labels: LabelSet }> {
   const defaultLabels = reportLabelsFor(matchDirection);
@@ -285,7 +318,7 @@ async function suggestCandidates(
         { role: "system", content: CANDIDATE_SUGGESTION_SYSTEM_PROMPT },
         {
           role: "user",
-          content: `${responseLanguageContext(responseLanguage, requesterMessage)}\n\nMATCH DIRECTION: ${matchDirection}\n\nPRODUCT CONTEXT: ${sellingContext}\n\nLABELS: ${JSON.stringify(defaultLabels)}`,
+          content: `${responseLanguageContext(responseLanguage, requesterMessage)}\n\nMATCH DIRECTION: ${matchDirection}\n\nPRODUCT CONTEXT: ${sellingContext}\n\nREQUESTED LOCATION: ${matchLocation ?? "not specified"}\n\nLABELS: ${JSON.stringify(defaultLabels)}`,
         },
       ],
       { temperature: 0.4, jsonMode: true, signal },
@@ -315,6 +348,7 @@ async function suggestCandidates(
  * @param requesterMessage latest user-authored message
  * @param responseLanguage language recognized from the latest message
  * @param matchDirection whether candidates are buyers or sellers
+ * @param matchLocation explicit geographic requirement, when supplied
  * @param signal cancels candidate resolution
  * @returns deduped candidate URLs and any labels localized during discovery
  */
@@ -325,6 +359,7 @@ export async function resolveCandidates(
   requesterMessage: string = "",
   responseLanguage: string = "English",
   matchDirection: MatchDirection = "sell",
+  matchLocation: string | null = null,
   signal?: AbortSignal,
 ): Promise<{
   candidates: ResolvedCandidate[];
@@ -348,6 +383,7 @@ export async function resolveCandidates(
             requesterMessage,
             responseLanguage,
             matchDirection,
+            matchLocation,
             signal,
           )
         : { identifiers: [], labels: defaultLabels };
@@ -448,6 +484,7 @@ function dedupeByHost(candidates: ResolvedCandidate[]): ResolvedCandidate[] {
  *   translation call
  * @param nameHint official candidate name retained from discovery
  * @param matchDirection whether the candidate should buy or sell the product
+ * @param matchLocation explicit geographic requirement, when supplied
  * @param signal cancels homepage and provider requests
  * @returns the candidate's score (with translated labels when requested),
  *   or null on any fetch/parse failure
@@ -461,6 +498,7 @@ export async function quickScoreCandidate(
   labelsToTranslate?: LabelSet,
   nameHint: string | null = null,
   matchDirection: MatchDirection = "sell",
+  matchLocation: string | null = null,
   signal?: AbortSignal,
 ): Promise<(CandidateScore & { labels?: LabelSet }) | null> {
   try {
@@ -468,6 +506,7 @@ export async function quickScoreCandidate(
     const extraction = analyzeProspect(page.html, page.url);
     const briefing = `CANDIDATE NAME HINT: ${nameHint ?? NOT_PUBLICLY_AVAILABLE}
 Company metadata: ${extraction.companyName ?? NOT_PUBLICLY_AVAILABLE}
+Structured location: ${extraction.jsonLdOrg?.address ?? NOT_PUBLICLY_AVAILABLE}
 Title/description: ${extraction.title ?? "-"} / ${extraction.description ?? "-"}
 Tech stack: ${extraction.techStack.join(", ") || "none detected"}
 Homepage text: ${htmlToText(page.html).slice(0, HOMEPAGE_CHAR_BUDGET)}`;
@@ -478,10 +517,13 @@ Homepage text: ${htmlToText(page.html).slice(0, HOMEPAGE_CHAR_BUDGET)}`;
         : `WHAT WE SELL: ${sellingContext}\n\n`
       : "";
     const directionLine = `MATCH DIRECTION: ${matchDirection}\n\n`;
+    const locationLine = matchLocation
+      ? `REQUESTED LOCATION: ${matchLocation}\n\n`
+      : "";
     const labelsLine = labelsToTranslate
       ? `LABELS: ${JSON.stringify(labelsToTranslate)}\n\n`
       : "";
-    const userContent = `${languageHint}${directionLine}${productLine}${labelsLine}${briefing}`;
+    const userContent = `${languageHint}${directionLine}${productLine}${locationLine}${labelsLine}${briefing}`;
     const raw = await chatCompletion(
       config,
       [
@@ -527,6 +569,7 @@ Homepage text: ${htmlToText(page.html).slice(0, HOMEPAGE_CHAR_BUDGET)}`;
  * @param responseLanguage language recognized from the latest user message
  * @param runtimeLabels translated progress and scorecard labels
  * @param matchDirection whether candidates are buyers or sellers
+ * @param matchLocation explicit geographic requirement, when supplied
  * @param signal cancels discovery and scoring work
  * @returns the report markdown, title, and localized card labels
  */
@@ -539,6 +582,7 @@ export async function runMatchSkill(
   responseLanguage: string = "English",
   runtimeLabels: RuntimeLabels = RUNTIME_LABEL_DEFAULTS,
   matchDirection: MatchDirection = "sell",
+  matchLocation: string | null = null,
   signal?: AbortSignal,
 ): Promise<{
   markdown: string;
@@ -586,6 +630,7 @@ export async function runMatchSkill(
     requesterMessage,
     responseLanguage,
     matchDirection,
+    matchLocation,
     signal,
   );
   const resolvedCandidates = candidatePool.candidates;
@@ -599,7 +644,13 @@ export async function runMatchSkill(
           : runtimeLabels.noCandidates,
     });
     return {
-      ...renderMatchReport(sellingContext, [], 0, candidatePool.labels),
+      ...renderMatchReport(
+        sellingContext,
+        [],
+        0,
+        candidatePool.labels,
+        matchLocation,
+      ),
       cardLabels: toCardLabels(candidatePool.labels),
     };
   }
@@ -636,6 +687,7 @@ export async function runMatchSkill(
         translateEveryScore || index === 0 ? defaultLabels : undefined,
         nameHint,
         matchDirection,
+        matchLocation,
         signal,
       ),
     ),
@@ -688,7 +740,13 @@ export async function runMatchSkill(
   }
   emit({ type: "phase", phase: "done", detail: runtimeLabels.matchComplete });
   return {
-    ...renderMatchReport(sellingContext, ranked, scored.length, labels),
+    ...renderMatchReport(
+      sellingContext,
+      ranked,
+      scored.length,
+      labels,
+      matchLocation,
+    ),
     cardLabels: toCardLabels(labels),
   };
 }

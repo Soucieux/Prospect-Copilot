@@ -209,6 +209,7 @@ export async function POST(request: NextRequest): Promise<Response> {
               routing.language,
               runtimeLabels,
               routing.matchDirection,
+              routing.matchLocation,
               request.signal,
             );
             send({

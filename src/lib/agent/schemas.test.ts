@@ -36,11 +36,13 @@ describe("ROUTER_RESULT_SCHEMA", () => {
       entity: null,
       sellingContext: "羊毛毯",
       matchDirection: "buy",
+      matchLocation: "多伦多",
       candidates: null,
     });
     expect(parsed.skill).toBe("match");
     expect(parsed.matchDirection).toBe("buy");
     expect(parsed.sellingContext).toBe("羊毛毯");
+    expect(parsed.matchLocation).toBe("多伦多");
   });
 
   it("treats a null direction from older router output as sell mode", () => {
@@ -53,6 +55,7 @@ describe("ROUTER_RESULT_SCHEMA", () => {
       candidates: null,
     });
     expect(parsed.matchDirection).toBe("sell");
+    expect(parsed.matchLocation).toBeNull();
   });
 
   it("accepts any recognized language and translated runtime labels", () => {

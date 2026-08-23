@@ -242,6 +242,110 @@ describe("routeMessage", () => {
     expect(result.skill).toBe("match");
     expect(result.matchDirection).toBe("buy");
     expect(result.sellingContext).toBe("羊毛毯");
+    expect(result.matchLocation).toBeNull();
+  });
+
+  it("extracts a city for a multilingual buy request", async () => {
+    stubRouterResponse({
+      skill: "match",
+      url: null,
+      entity: null,
+      sellingContext: "羊毛毯",
+      matchDirection: "buy",
+      matchLocation: "多伦多",
+      candidates: null,
+      language: "Chinese",
+      runtimeLabels: {},
+    });
+    const result = await routeMessage(CONFIG, "多伦多哪里可以买到羊毛毯？", []);
+    expect(result.matchLocation).toBe("多伦多");
+    expect(result.matchDirection).toBe("buy");
+  });
+
+  it("extracts a region for a multilingual sell request", async () => {
+    stubRouterResponse({
+      skill: "match",
+      url: null,
+      entity: null,
+      sellingContext: "logiciel de paie",
+      matchDirection: "sell",
+      matchLocation: "Québec",
+      candidates: null,
+      language: "French",
+      runtimeLabels: {},
+    });
+    const result = await routeMessage(
+      CONFIG,
+      "Où vendre un logiciel de paie au Québec ?",
+      [],
+    );
+    expect(result.matchLocation).toBe("Québec");
+    expect(result.matchDirection).toBe("sell");
+  });
+
+  it("extracts a country without translating its user-authored name", async () => {
+    stubRouterResponse({
+      skill: "match",
+      url: null,
+      entity: null,
+      sellingContext: "بطانيات صوفية",
+      matchDirection: "buy",
+      matchLocation: "فرنسا",
+      candidates: null,
+      language: "Arabic",
+      runtimeLabels: {},
+    });
+    const result = await routeMessage(
+      CONFIG,
+      "أين يمكنني شراء بطانيات صوفية في فرنسا؟",
+      [],
+    );
+    expect(result.matchLocation).toBe("فرنسا");
+  });
+
+  it("uses the latest location while retaining product and direction", async () => {
+    const spy = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    skill: "match",
+                    url: null,
+                    entity: null,
+                    sellingContext: "wool blankets",
+                    matchDirection: "buy",
+                    matchLocation: "Montreal",
+                    candidates: null,
+                    language: "English",
+                    runtimeLabels: {},
+                  }),
+                },
+              },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", spy);
+    const result = await routeMessage(CONFIG, "What about Montreal?", [
+      { role: "user", content: "Where can I buy wool blankets in Toronto?" },
+      { role: "assistant", content: "Here are places in Toronto." },
+    ]);
+    expect(result.sellingContext).toBe("wool blankets");
+    expect(result.matchDirection).toBe("buy");
+    expect(result.matchLocation).toBe("Montreal");
+    const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as {
+      messages: { content: string }[];
+    };
+    expect(body.messages[0].content).toContain(
+      "latest explicit location\n  overrides earlier locations",
+    );
+    expect(body.messages[0].content).toContain(
+      'follow-up\n  "What about Montreal?" remains match',
+    );
   });
 
   it("recovers a referenced product for a multilingual buy follow-up", async () => {
