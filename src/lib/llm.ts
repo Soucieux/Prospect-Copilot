@@ -1,7 +1,13 @@
-/**
- * Thin client for an OpenAI-compatible chat-completions endpoint (GLM).
- * Streaming and non-streaming calls; no SDK dependency.
- */
+/** LangChain model adapter for OpenAI-compatible chat endpoints. */
+
+import {
+  AIMessage,
+  HumanMessage,
+  SystemMessage,
+  type BaseMessage,
+} from "@langchain/core/messages";
+import { ChatOpenAI } from "@langchain/openai";
+import { z } from "zod";
 
 export interface LlmMessage {
   role: "system" | "user" | "assistant";
@@ -23,6 +29,11 @@ export interface LlmCallOptions {
   signal?: AbortSignal;
 }
 
+export interface StructuredLlmCallOptions extends LlmCallOptions {
+  /** Stable operation name used in LangChain structured-output metadata. */
+  schemaName?: string;
+}
+
 export class LlmError extends Error {
   public readonly status: number;
 
@@ -33,193 +44,244 @@ export class LlmError extends Error {
   }
 }
 
+/** Provider request timeout that is distinct from caller cancellation. */
+export class LlmTimeoutError extends LlmError {
+  public constructor() {
+    super("LLM request timed out", 408);
+    this.name = "LlmTimeoutError";
+  }
+}
+
+/** Invalid JSON/schema output produced by a successful model response. */
+export class LlmStructuredOutputError extends Error {
+  public constructor(cause: unknown) {
+    super("Structured model response was invalid", { cause });
+    this.name = "LlmStructuredOutputError";
+  }
+}
+
 const REQUEST_TIMEOUT_MS = 120_000;
 
-/**
- * Build the absolute chat-completions URL for a base URL.
- * @param baseUrl OpenAI-compatible base URL, e.g. https://api.z.ai/api/paas/v4
- * @returns {baseUrl}/chat/completions with no duplicate slash
- */
+/** Build the absolute chat-completions URL for diagnostic compatibility. */
 export function chatCompletionsUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
 }
 
-/**
- * Build the JSON request body for a chat-completions call.
- * @param config endpoint credentials and model
- * @param messages conversation so far
- * @param stream whether to request an SSE stream
- * @param options temperature and JSON-mode flags
- * @returns the serialized request body
- */
-function buildBody(
-  config: LlmConfig,
-  messages: LlmMessage[],
-  stream: boolean,
-  options: LlmCallOptions,
-): string {
-  return JSON.stringify({
-    model: config.model,
-    messages,
-    stream,
-    ...(options.temperature !== undefined
-      ? { temperature: options.temperature }
-      : {}),
-    ...(options.jsonMode ? { response_format: { type: "json_object" } } : {}),
+/** Convert the app's stable message shape into LangChain message objects. */
+function toLangChainMessages(messages: LlmMessage[]): BaseMessage[] {
+  return messages.map((message) => {
+    if (message.role === "system") return new SystemMessage(message.content);
+    if (message.role === "assistant") return new AIMessage(message.content);
+    return new HumanMessage(message.content);
   });
 }
 
-/**
- * Build the request headers for a chat-completions call.
- * @param config endpoint credentials
- * @returns headers with content-type and bearer authorization
- */
-function buildHeaders(config: LlmConfig): HeadersInit {
-  return {
-    "content-type": "application/json",
-    authorization: `Bearer ${config.apiKey}`,
-  };
+/** Convert text or text content blocks from a LangChain message to one string. */
+function messageText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => {
+      if (typeof block === "string") return block;
+      if (
+        typeof block === "object" &&
+        block !== null &&
+        "type" in block &&
+        block.type === "text" &&
+        "text" in block &&
+        typeof block.text === "string"
+      ) {
+        return block.text;
+      }
+      return "";
+    })
+    .join("");
 }
 
 /**
- * Non-streaming chat completion; returns the full assistant message content.
- * @param config endpoint credentials and model
- * @param messages conversation so far
- * @param options temperature, JSON mode, timeout
- * @returns the assistant's reply text
- * @throws LlmError on non-2xx or unparseable responses
+ * Tolerate OpenAI-compatible providers that omit a response Content-Type.
+ * The SDK otherwise treats their valid JSON/SSE payload as an empty result.
  */
+const providerFetch: typeof fetch = async (input, init) => {
+  const response = await globalThis.fetch(input, init);
+  const contentType = response.headers.get("content-type")?.toLowerCase();
+  if (contentType && !contentType.startsWith("text/plain")) return response;
+  const headers = new Headers(response.headers);
+  const requestBody = typeof init?.body === "string" ? init.body : "";
+  headers.set(
+    "content-type",
+    requestBody.includes('"stream":true')
+      ? "text/event-stream"
+      : "application/json",
+  );
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+};
+
+/** Create one provider model while leaving retries owned by app workflows. */
+function createModel(
+  config: LlmConfig,
+  options: LlmCallOptions,
+): ChatOpenAI {
+  return new ChatOpenAI({
+    apiKey: config.apiKey,
+    model: config.model,
+    temperature: options.temperature,
+    timeout: options.timeoutMs ?? REQUEST_TIMEOUT_MS,
+    maxRetries: 0,
+    streamUsage: false,
+    configuration: { baseURL: config.baseUrl, fetch: providerFetch },
+    ...(options.jsonMode
+      ? { modelKwargs: { response_format: { type: "json_object" } } }
+      : {}),
+  });
+}
+
+interface AbortContext {
+  signal: AbortSignal;
+  timedOut: () => boolean;
+  cleanup: () => void;
+}
+
+/** Combine the provider timeout with caller cancellation for one operation. */
+function createAbortContext(options: LlmCallOptions): AbortContext {
+  const controller = new AbortController();
+  let didTimeOut = false;
+  const timer = setTimeout(() => {
+    didTimeOut = true;
+    controller.abort(new DOMException("LLM request timed out", "TimeoutError"));
+  }, options.timeoutMs ?? REQUEST_TIMEOUT_MS);
+  const abortFromCaller = (): void => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) abortFromCaller();
+  else options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  return {
+    signal: controller.signal,
+    timedOut: () => didTimeOut,
+    cleanup: () => {
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", abortFromCaller);
+    },
+  };
+}
+
+/** Normalize provider-specific errors into the app's stable error contract. */
+function normalizeProviderError(caught: unknown): LlmError {
+  if (caught instanceof LlmError) return caught;
+  const source =
+    typeof caught === "object" && caught !== null
+      ? (caught as Record<string, unknown>)
+      : {};
+  const status = typeof source.status === "number" ? source.status : 502;
+  const detail = caught instanceof Error ? caught.message : String(caught);
+  return new LlmError(
+    `LLM request failed (${status}): ${detail.slice(0, 500)}`,
+    status,
+  );
+}
+
+/** Execute one LangChain invocation under the app's timeout/error contract. */
+async function invokeWithContract<T>(
+  options: LlmCallOptions,
+  operation: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const abort = createAbortContext(options);
+  try {
+    return await operation(abort.signal);
+  } catch (caught) {
+    if (options.signal?.aborted) options.signal.throwIfAborted();
+    if (abort.timedOut()) throw new LlmTimeoutError();
+    throw normalizeProviderError(caught);
+  } finally {
+    abort.cleanup();
+  }
+}
+
+/** Non-streaming completion through LangChain's ChatOpenAI adapter. */
 export async function chatCompletion(
   config: LlmConfig,
   messages: LlmMessage[],
   options: LlmCallOptions = {},
 ): Promise<string> {
-  const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const abortFromCaller = (): void => controller.abort(options.signal?.reason);
-  if (options.signal?.aborted) abortFromCaller();
-  else options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  return invokeWithContract(options, async (signal) => {
+    const response = await createModel(config, options).invoke(
+      toLangChainMessages(messages),
+      { signal, maxRetries: 0 },
+    );
+    return messageText(response.content);
+  });
+}
+
+/** Parse and validate JSON-mode output through a LangChain runnable. */
+export async function structuredChatCompletion<Schema extends z.ZodTypeAny>(
+  config: LlmConfig,
+  messages: LlmMessage[],
+  schema: Schema,
+  options: StructuredLlmCallOptions = {},
+): Promise<z.infer<Schema>> {
+  const abort = createAbortContext(options);
   try {
-    const response = await fetch(chatCompletionsUrl(config.baseUrl), {
-      method: "POST",
-      headers: buildHeaders(config),
-      body: buildBody(config, messages, false, options),
-      signal: controller.signal,
+    const runnable = createModel(config, options).withStructuredOutput<
+      z.infer<Schema>
+    >(schema, {
+      method: "jsonMode",
+      name: options.schemaName,
     });
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      throw new LlmError(
-        `LLM request failed (${response.status}): ${detail.slice(0, 500)}`,
-        response.status,
-      );
+    return await runnable.invoke(toLangChainMessages(messages), {
+      signal: abort.signal,
+    });
+  } catch (caught) {
+    if (options.signal?.aborted) options.signal.throwIfAborted();
+    if (abort.timedOut()) throw new LlmTimeoutError();
+    const name = caught instanceof Error ? caught.name : "";
+    const code =
+      typeof caught === "object" && caught !== null && "lc_error_code" in caught
+        ? String((caught as { lc_error_code: unknown }).lc_error_code)
+        : "";
+    if (
+      caught instanceof z.ZodError ||
+      caught instanceof SyntaxError ||
+      name === "OutputParserException" ||
+      code === "OUTPUT_PARSING_FAILURE"
+    ) {
+      throw new LlmStructuredOutputError(caught);
     }
-    const payload: unknown = await response.json();
-    const content = extractContent(payload);
-    return content;
+    throw normalizeProviderError(caught);
   } finally {
-    clearTimeout(timer);
-    options.signal?.removeEventListener("abort", abortFromCaller);
+    abort.cleanup();
   }
 }
 
-/**
- * Streaming chat completion; yields assistant text deltas as they arrive.
- * @param config endpoint credentials and model
- * @param messages conversation so far
- * @param options temperature, timeout
- * @yields incremental text chunks
- * @throws LlmError on non-2xx responses
- */
+/** Streaming completion while preserving the app's text-delta contract. */
 export async function* streamChatCompletion(
   config: LlmConfig,
   messages: LlmMessage[],
   options: LlmCallOptions = {},
 ): AsyncGenerator<string> {
-  const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const abortFromCaller = (): void => controller.abort(options.signal?.reason);
-  if (options.signal?.aborted) abortFromCaller();
-  else options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const abort = createAbortContext(options);
   try {
-    const response = await fetch(chatCompletionsUrl(config.baseUrl), {
-      method: "POST",
-      headers: buildHeaders(config),
-      body: buildBody(config, messages, true, options),
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      throw new LlmError(
-        `LLM request failed (${response.status}): ${detail.slice(0, 500)}`,
-        response.status,
-      );
+    const stream = await createModel(config, options).stream(
+      toLangChainMessages(messages),
+      { signal: abort.signal, maxRetries: 0 },
+    );
+    for await (const chunk of stream) {
+      const delta = messageText(chunk.content);
+      if (delta) yield delta;
     }
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new LlmError("LLM response had no body", 502);
-    }
-    const decoder = new TextDecoder();
-    let buffer = "";
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        const delta = parseSseLine(line);
-        if (delta !== null) yield delta;
-      }
-    }
-    const tail = parseSseLine(buffer);
-    if (tail !== null) yield tail;
+  } catch (caught) {
+    if (options.signal?.aborted) options.signal.throwIfAborted();
+    if (abort.timedOut()) throw new LlmTimeoutError();
+    throw normalizeProviderError(caught);
   } finally {
-    clearTimeout(timer);
-    options.signal?.removeEventListener("abort", abortFromCaller);
+    abort.cleanup();
   }
-}
-
-/**
- * Extract one delta from an SSE line, or null for non-data/keepalive lines.
- * @param line raw SSE line such as `data: {"choices":[...]}`
- * @returns the delta text, or null when the line carries no content
- */
-function parseSseLine(line: string): string | null {
-  const trimmed = line.trim();
-  if (!trimmed.startsWith("data:")) return null;
-  const data = trimmed.slice(5).trim();
-  if (data === "" || data === "[DONE]") return null;
-  try {
-    return extractContent(JSON.parse(data), true);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Pull assistant text out of a chat-completions payload.
- * @param payload parsed JSON body (non-stream) or SSE chunk (stream)
- * @param isChunk true when payload is a streaming chunk with choices[0].delta
- * @returns text content, or empty string when absent
- */
-function extractContent(payload: unknown, isChunk = false): string {
-  if (typeof payload !== "object" || payload === null) return "";
-  const choices = (payload as { choices?: unknown }).choices;
-  if (!Array.isArray(choices) || choices.length === 0) return "";
-  const first = choices[0] as Record<string, unknown>;
-  const holder = isChunk ? first.delta : first.message;
-  if (typeof holder !== "object" || holder === null) return "";
-  const content = (holder as { content?: unknown }).content;
-  return typeof content === "string" ? content : "";
 }
 
 /**
  * Extract the {...} JSON object substring from raw LLM text, stripping any
- * markdown code fence around it first.
- * @param raw the model's reply text
- * @returns the JSON substring, or null when no object span is found
+ * markdown code fence around it first. Retained for compatibility and tests.
  */
 export function extractJsonObject(raw: string): string | null {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
