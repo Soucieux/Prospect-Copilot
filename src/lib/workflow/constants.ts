@@ -1,3 +1,5 @@
+import { RESPOND_IN_USER_LANGUAGE } from "@/lib/constants";
+
 /** Top-level and subgraph node identifiers. */
 export const WORKFLOW_NODE = {
   understandRequest: "understand_request",
@@ -51,4 +53,3 @@ export const ROUTE_FALLBACK_SKILL = "none" as const;
 
 /** Recovery language used only when routing cannot identify the user's language. */
 export const DEFAULT_RESPONSE_LANGUAGE = "English";
-import { RESPOND_IN_USER_LANGUAGE } from "@/lib/constants";
