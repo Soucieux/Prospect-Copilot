@@ -149,6 +149,7 @@ export async function routeMessageForWorkflow(
       runtimeLabels: mergeRuntimeLabels(parsed.runtimeLabels),
     };
   } catch (caught) {
+    signal?.throwIfAborted();
     if (caught instanceof LlmError) throw caught;
     throw new RouterOutputError();
   }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { routeMessage } from "./router";
+import { routeMessage, routeMessageForWorkflow } from "./router";
 import type { LlmConfig } from "@/lib/llm";
 
 const CONFIG: LlmConfig = {
@@ -40,6 +40,15 @@ function stubSequentialResponses(contents: string[]): void {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+it("preserves caller cancellation instead of converting it to router output failure", async () => {
+  const controller = new AbortController();
+  controller.abort(new DOMException("Request cancelled", "AbortError"));
+
+  await expect(
+    routeMessageForWorkflow(CONFIG, "analyze Acme", [], controller.signal),
+  ).rejects.toMatchObject({ name: "AbortError" });
 });
 
 describe("routeMessage", () => {
