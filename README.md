@@ -1,6 +1,6 @@
 # Prospect Copilot
 
-A TypeScript rewrite of [`zubair-trabzada/ai-sales-team-claude`](https://github.com/zubair-trabzada/ai-sales-team-claude) as a standalone web app: a chat page where a prospect-analysis request automatically routes into a five-subagent sales pipeline.
+A TypeScript rewrite of [`zubair-trabzada/ai-sales-team-claude`](https://github.com/zubair-trabzada/ai-sales-team-claude) as a standalone web app: a chat page where one message routes automatically into a full prospect audit, one of four standalone research skills, or a ranked buy/sell product match.
 
 Built with Next.js (App Router), TypeScript, LangGraph, and LangChain, powered
 by an approved OpenAI-compatible LLM endpoint (default: DeepSeek at
@@ -9,13 +9,7 @@ by an approved OpenAI-compatible LLM endpoint (default: DeepSeek at
 ## How it works
 
 1. Type a message in the chat page. A stateless LangGraph request workflow asks the intent router to classify it against six skills: **prospect** (full audit), **research**, **qualify**, **contacts**, **outreach**, **match** (rank candidate prospects for a product) - or plain chat.
-2. **Prospect** runs the full pipeline: page discovery (homepage + up to 6 subpages) -> deterministic extraction (tech stack, funding/jobs signals, and team-page contacts read from page text rather than links alone, with people employed elsewhere excluded) -> **5 parallel subagent analyses** -> deterministic BANT and MEDDIC scoring + weighted composite (0-100, grade A+ to D) -> LLM synthesis with an executive summary, action plan, and first-touch email.
-
-   Signals a page extractor cannot read - customer pain points, open roles, recent funding - are reported by the Opportunity Scoring subagent, which must evidence each one from the fetched pages and omits anything it cannot support. Deterministic code, never the model, then computes BANT and MEDDIC from those signals.
-
-   Following the original prototype, MEDDIC is a **completeness diagnostic** that carries no weight in the numeric score. Each of the six elements is graded 0-100% by the share of its supporting signals that carried evidence, and the overall figure is the mean of the six - so a partly evidenced element is reported as partial instead of being rounded up to "known".
-
-   The grade separates *looked for and absent* from *never collected*. Customer-review evidence and contract-renewal timing have no collector in this pipeline - the first needs a third-party source, the second is only learnable from the prospect - so they are excluded from the percentage rather than capping it, and 100% stays reachable. Both still appear in the report under "Ask on the call", alongside the specific signal missing from every incomplete element, which makes the table call prep rather than a verdict.
+2. **Prospect** runs the full pipeline: page discovery (homepage + up to 6 subpages) -> deterministic extraction (tech stack, funding/jobs signals, and team-page contacts read from page text rather than links alone, with people employed elsewhere excluded) -> **5 parallel subagent analyses** -> a weighted composite of the five subagent scores (0-100, grade A+ to D), with deterministic BANT and MEDDIC reported alongside it as separate diagnostics -> LLM synthesis with an executive summary, action plan, and first-touch email.
 3. Standalone skills (**research / qualify / contacts / outreach**) run light discovery when a URL is given, then stream their markdown deliverable.
 4. **Match** uses one ranked-candidate pipeline for both directions: it can find likely buyers for something you want to sell or places that sell something you want to buy. Candidate URL resolution and scoring use separate bounded worker pools with at most four active jobs - see "Finding buyers or sellers for a product" below.
 5. Every report renders as structured in-app content; match results use selectable cards with full company names, clickable company websites, and a separate full-review action.
@@ -23,6 +17,14 @@ by an approved OpenAI-compatible LLM endpoint (default: DeepSeek at
 7. Every reply - plain chat, processing logs, full audits, standalone skills, and match cards alike - is written in whatever language you write in, not English by default.
 
 Bring your own key: the API key is stored in `localStorage` in *your* browser only and sent per-request as a header. It is never written to disk server-side and never logged.
+
+### Scoring model
+
+Signals a page extractor cannot read - customer pain points, open roles, recent funding - are reported by the Opportunity Scoring subagent, which must evidence each one from the fetched pages and omits anything it cannot support. Deterministic code, never the model, then computes BANT and MEDDIC from those signals.
+
+Following the original prototype, MEDDIC is a **completeness diagnostic** that carries no weight in the numeric score. Each of the six elements is graded 0-100% by the share of its supporting signals that carried evidence, and the overall figure is the mean of the six - so a partly evidenced element is reported as partial instead of being rounded up to "known".
+
+The grade separates *looked for and absent* from *never collected*. Customer-review evidence and contract-renewal timing have no collector in this pipeline - the first needs a third-party source, the second is only learnable from the prospect - so they are excluded from the percentage rather than capping it, and 100% stays reachable. Both still appear in the report under "Ask on the call", alongside the specific signal missing from every incomplete element, which makes the table call prep rather than a verdict.
 
 ### Workflow architecture and retries
 
@@ -60,6 +62,21 @@ The graph is currently created per request without a server-side checkpointer.
 This preserves the existing privacy boundary: completed conversations and
 reports live only in browser IndexedDB. Durable resume, background runs, and
 human-review interrupts require a separate storage and ownership decision.
+
+### Project layout
+
+| Path | Responsibility |
+| --- | --- |
+| `src/app/` | App Router page and the single `/api/chat` streaming endpoint. |
+| `src/lib/workflow/` | LangGraph graph, shared state, and the prospect, match, standalone, and plain-chat subgraphs. |
+| `src/lib/agent/` | Intent router, prospect orchestrator, and the Zod schemas every structured model call is validated against. |
+| `src/lib/extract/` | Secure fetching (SSRF guard), homepage analysis, contact discovery, and HTML-to-text. |
+| `src/lib/scoring/` | Deterministic BANT, MEDDIC, and composite scoring. No I/O and no model calls. |
+| `src/lib/skills/` | The five subagent definitions, the four standalone skills, and the match pipeline. |
+| `src/lib/storage/` | Browser IndexedDB persistence for conversations and reports. |
+
+Business rules live in `scoring/` and `extract/`, never in a prompt: the model
+supplies evidenced facts and deterministic TypeScript does every calculation.
 
 ### Finding buyers or sellers for a product
 
