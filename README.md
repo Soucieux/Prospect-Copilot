@@ -111,6 +111,13 @@ compare Acme Corp, Globex, and Initech
 
 Requires Node.js 20 or newer.
 
+This project runs Next.js 16, whose APIs, conventions, and file layout differ
+from earlier versions. Before writing framework code, read the version-matched
+guides bundled at `node_modules/next/dist/docs/` instead of relying on older
+Next.js knowledge, and heed deprecation notices. Next.js would otherwise write
+this note into generated `AGENTS.md` and `CLAUDE.md` files; `agentRules: false`
+in `next.config.ts` disables that, so the note is maintained here.
+
 ```bash
 npm install
 npm run dev        # http://localhost:3000
