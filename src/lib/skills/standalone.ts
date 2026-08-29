@@ -142,7 +142,7 @@ verify as "${NOT_PUBLICLY_AVAILABLE}" rather than guessing.`;
     });
     const page = await fetchWithVariants(url, signal);
     const extraction = analyzeProspect(page.html, page.url);
-    const contacts = findContacts(page.html);
+    const contacts = findContacts(page.html, extraction.companyName);
     const signals = buildSignals(extraction, contacts);
     const bant = skill.name === "qualify" ? scoreBant(signals) : null;
     grounding = `Discovery briefing for ${page.url}:

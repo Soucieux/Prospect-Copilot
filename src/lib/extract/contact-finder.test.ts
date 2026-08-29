@@ -37,7 +37,7 @@ describe("findContacts", () => {
   it("extracts HTML card people with a nearby title", () => {
     const maria = contacts.find((c) => c.name === "Maria Garcia");
     expect(maria).toBeDefined();
-    expect(maria?.title).toBe("Director");
+    expect(maria?.title).toBe("Director of Product");
     expect(maria?.seniority).toBe("Director");
   });
 
@@ -67,5 +67,104 @@ describe("classifiers", () => {
     expect(classifyBuyingRole("VP Sales")).toBe("Champion");
     expect(classifyBuyingRole("Account Executive")).toBe("End User");
     expect(classifyBuyingRole(null)).toBe("Unknown");
+  });
+});
+
+describe("findContacts on real-world team page shapes", () => {
+  it("finds a person whose card has no LinkedIn link", () => {
+    const contacts = findContacts(`<div class="teammate">
+      <h3>Joel Gascoigne</h3>
+      <p>CEO &amp; Co-Founder</p>
+    </div>`);
+    expect(contacts).toHaveLength(1);
+    expect(contacts[0].name).toBe("Joel Gascoigne");
+    expect(contacts[0].title).toBe("CEO & Co-Founder");
+    expect(contacts[0].seniority).toBe("C-Suite");
+    expect(contacts[0].buyingRole).toBe("Economic Buyer");
+    expect(contacts[0].linkedin).toBeNull();
+  });
+
+  it("does not weld a name onto an adjacent title inside one anchor", () => {
+    const contacts = findContacts(
+      `<a href="https://www.linkedin.com/in/cristinacordova"><span>Cristina Cordova</span><span>COO</span></a>`,
+    );
+    expect(contacts).toHaveLength(1);
+    expect(contacts[0].name).toBe("Cristina Cordova");
+    expect(contacts[0].title).toBe("COO");
+  });
+
+  it("never borrows a title from a different person in a flat container", () => {
+    const contacts = findContacts(`<div class="people">
+      <a href="https://www.linkedin.com/in/amy-liu">Amy Liu</a>
+      <span>Head of Design</span>
+      <a href="https://www.linkedin.com/in/ben-ortiz">Ben Ortiz</a>
+      <span>Founder</span>
+    </div>`);
+    expect(contacts.find((c) => c.name === "Amy Liu")?.title).toBe("Head of Design");
+    expect(contacts.find((c) => c.name === "Ben Ortiz")?.title).toBe("Founder");
+  });
+
+  it("keeps the whole title so buying role stays correct", () => {
+    const contacts = findContacts(
+      `<div><a href="https://www.linkedin.com/in/dana">Dana Whitfield</a><span>VP of Sales</span></div>`,
+    );
+    expect(contacts[0].title).toBe("VP of Sales");
+    expect(contacts[0].buyingRole).toBe("Champion");
+  });
+
+  it("reads a name and title written inline in one line of prose", () => {
+    const contacts = findContacts(`<p>Joel Gascoigne, Chief Executive Officer</p>`);
+    expect(contacts).toHaveLength(1);
+    expect(contacts[0].name).toBe("Joel Gascoigne");
+    expect(contacts[0].title).toBe("Chief Executive Officer");
+  });
+
+  it("does not mistake capitalized navigation labels for people", () => {
+    const contacts = findContacts(`<nav>
+      <a href="/privacy">Privacy Policy</a>
+      <a href="/contact">Contact Us</a>
+      <a href="/about">Our Team</a>
+    </nav>`);
+    expect(contacts).toEqual([]);
+  });
+});
+
+describe("findContacts filtering people from other companies", () => {
+  const ABOUT_HTML = `<div>
+    <div><h3>Tom Moor</h3><p>Head of Engineering</p></div>
+    <div><h3>Carolyn Kopprasch</h3><p>Chief of Staff</p></div>
+    <div><h3>Dylan Field</h3><p>CEO, Figma</p></div>
+    <div><h3>Nat Friedman</h3><p>Former CEO of GitHub</p></div>
+  </div>`;
+
+  it("drops investors and advisors who work at another company", () => {
+    const names = findContacts(ABOUT_HTML, "Linear").map((c) => c.name);
+    expect(names).toContain("Tom Moor");
+    expect(names).not.toContain("Dylan Field");
+    expect(names).not.toContain("Nat Friedman");
+  });
+
+  it("keeps a title whose 'of' names a scope rather than an employer", () => {
+    const names = findContacts(ABOUT_HTML, "Linear").map((c) => c.name);
+    expect(names).toContain("Carolyn Kopprasch");
+  });
+
+  it("keeps someone whose title names the prospect's own company", () => {
+    const contacts = findContacts(
+      `<div><h3>Joel Gascoigne</h3><p>CEO of Buffer</p></div>`,
+      "Buffer, Inc.",
+    );
+    expect(contacts.map((c) => c.name)).toEqual(["Joel Gascoigne"]);
+  });
+
+  it("filters on the title alone when the company name is unknown", () => {
+    const names = findContacts(ABOUT_HTML).map((c) => c.name);
+    expect(names).toEqual(["Tom Moor", "Carolyn Kopprasch"]);
+  });
+
+  it("treats a bare CPO as C-suite rather than an employer name", () => {
+    const contacts = findContacts(`<div><h3>Jori Lallo</h3><p>Co-founder, CPO</p></div>`);
+    expect(contacts).toHaveLength(1);
+    expect(contacts[0].seniority).toBe("C-Suite");
   });
 });
