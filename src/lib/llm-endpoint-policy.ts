@@ -5,6 +5,10 @@ export const LLM_ALLOWED_BASE_URLS_ENV = "LLM_ALLOWED_BASE_URLS";
 
 /** Configuration error raised before an unapproved provider can be contacted. */
 export class LlmEndpointPolicyError extends Error {
+  /**
+   * Create an unapproved-provider configuration failure.
+   * @param message operator-facing detail naming the approval env var
+   */
   public constructor(message: string) {
     super(message);
     this.name = "LlmEndpointPolicyError";

@@ -34,9 +34,15 @@ export interface StructuredLlmCallOptions extends LlmCallOptions {
   schemaName?: string;
 }
 
+/** A failed provider call carrying the HTTP status used for retry decisions. */
 export class LlmError extends Error {
   public readonly status: number;
 
+  /**
+   * Create a provider failure with its retry-classifying status.
+   * @param message human-readable failure detail
+   * @param status HTTP status reported by, or inferred for, the provider
+   */
   public constructor(message: string, status: number) {
     super(message);
     this.name = "LlmError";
@@ -46,6 +52,7 @@ export class LlmError extends Error {
 
 /** Provider request timeout that is distinct from caller cancellation. */
 export class LlmTimeoutError extends LlmError {
+  /** Create a provider timeout reported as a retryable 408. */
   public constructor() {
     super("LLM request timed out", 408);
     this.name = "LlmTimeoutError";
@@ -54,6 +61,10 @@ export class LlmTimeoutError extends LlmError {
 
 /** Invalid JSON/schema output produced by a successful model response. */
 export class LlmStructuredOutputError extends Error {
+  /**
+   * Create a repairable structured-output failure.
+   * @param cause the originating parse or schema error
+   */
   public constructor(cause: unknown) {
     super("Structured model response was invalid", { cause });
     this.name = "LlmStructuredOutputError";
@@ -61,11 +72,6 @@ export class LlmStructuredOutputError extends Error {
 }
 
 const REQUEST_TIMEOUT_MS = 120_000;
-
-/** Build the absolute chat-completions URL for diagnostic compatibility. */
-export function chatCompletionsUrl(baseUrl: string): string {
-  return `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
-}
 
 /** Convert the app's stable message shape into LangChain message objects. */
 function toLangChainMessages(messages: LlmMessage[]): BaseMessage[] {

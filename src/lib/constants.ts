@@ -15,10 +15,6 @@ export const SETTINGS_STORAGE_KEY = "prospect-copilot:settings";
 export const ACTIVE_CONVERSATION_STORAGE_KEY =
   "prospect-copilot:active-conversation";
 
-/** SSE event types on the /api/chat wire protocol. */
-export const EVENT_TOKEN = "token";
-export const EVENT_ERROR = "error";
-
 /** Standard label for missing/unverified discovery data across reports and prompts. */
 export const NOT_PUBLICLY_AVAILABLE = "Not publicly available";
 

@@ -242,7 +242,7 @@ export async function resolveCompanyUrl(
     if (!candidate || candidate.toLowerCase() === "unknown") return null;
     const url = normalizeUrl(candidate).toString();
     return isLikelyCompanyUrl(url) ? url : null;
-  } catch (caught) {
+  } catch {
     signal?.throwIfAborted();
     return null;
   }

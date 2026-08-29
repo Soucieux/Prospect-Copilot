@@ -48,8 +48,5 @@ export const ROUTER_RETRY_POLICY = {
 export const PLAIN_CHAT_SYSTEM_PROMPT =
   `You are a helpful sales intelligence assistant. Answer concisely and practically.\n${RESPOND_IN_USER_LANGUAGE}`;
 
-/** Safe fallback target when routing output cannot be repaired. */
-export const ROUTE_FALLBACK_SKILL = "none" as const;
-
 /** Recovery language used only when routing cannot identify the user's language. */
 export const DEFAULT_RESPONSE_LANGUAGE = "English";
