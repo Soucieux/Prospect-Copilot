@@ -22,6 +22,20 @@ export const SUBAGENT_RESULT_SCHEMA = z.object({
     )
     .max(12),
   recommendation: z.string().min(1),
+  /**
+   * Evidence-backed discovery signals the deterministic scorers cannot read
+   * off a page themselves. Only the Opportunity Scoring subagent is asked for
+   * these; every field stays optional so an absent signal scores as unknown
+   * rather than as a zero the model invented.
+   */
+  discoverySignals: z
+    .object({
+      painPointsDetected: z.number().int().min(0).max(20).optional(),
+      activeJobPostings: z.number().int().min(0).max(1_000).optional(),
+      recentFundingWithin12Months: z.boolean().optional(),
+      fundingTotalUsd: z.number().min(0).optional(),
+    })
+    .optional(),
 });
 
 export type SubagentResult = z.infer<typeof SUBAGENT_RESULT_SCHEMA>;

@@ -3,12 +3,7 @@
  * Each definition pairs its system prompt with the category it scores.
  */
 
-import {
-  SUBAGENT_RESULT_SCHEMA,
-  type SubagentResult,
-} from "@/lib/agent/schemas";
 import type { CategoryScores } from "@/lib/scoring/lead-scorer";
-import { extractJsonObject } from "@/lib/llm";
 import {
   NOT_PUBLICLY_AVAILABLE,
   RESPOND_IN_USER_LANGUAGE,
@@ -99,8 +94,23 @@ Score these dimensions (0-25 each, summed into your 0-100 score):
 - Need: strength of pain-point evidence (job posts, blog complaints, reviews).
 - Timeline: urgency signals - recent funding, hiring surges, contract cycles.
 Also note MEDDIC completeness in your findings where evidence exists.
+
+You alone also report the deterministic scorers' missing inputs, as a
+"discoverySignals" object added to your JSON. Count or confirm ONLY what the
+briefing itself evidences, and omit any field the briefing does not support -
+an omitted field is scored as unknown, while a guessed one corrupts the
+deterministic BANT and MEDDIC scores. Never report 0 or false to mean
+"unknown": omit that field instead, because a reported value is treated as a
+verified finding rather than a gap.
+- painPointsDetected: number of distinct customer pain points the company's
+  own pages describe (problems it solves, complaints it cites).
+- activeJobPostings: number of open roles listed on its careers page.
+- recentFundingWithin12Months: true only when a dated funding announcement in
+  the briefing falls within the last 12 months.
+- fundingTotalUsd: total disclosed funding in USD, only when stated outright.
 ${NEVER_FABRICATE_RULES}
-${OUTPUT_CONTRACT}`,
+${OUTPUT_CONTRACT}
+For this subagent only, also add "discoverySignals": {"painPointsDetected": <number>, "activeJobPostings": <number>, "recentFundingWithin12Months": <boolean>, "fundingTotalUsd": <number>}, omitting every field you cannot evidence.`,
   },
   {
     category: "competitivePosition",
@@ -118,13 +128,15 @@ competitive analysis needs a product context to be meaningful. Never guess a
 product category to fill this in, and never conclude the prospect itself is
 "a competitor" without being told what they would be competing with.
 
-Score these dimensions (0-20 each, summed into your 0-100 score):
-- Current vendor identified: do we know what they use today, relative to the seller's category?
+Score these five dimensions (0-20 each, summed into your 0-100 score):
+- Solution gaps: exploitable gaps in their current solution vs. the seller's offering.
 - Switching feasibility: low switching cost = high score.
-- Competitive gaps: exploitable gaps in their current solution vs. the seller's offering.
+- Competitive advantage: durable edge the seller holds over the incumbent here.
+- Positioning clarity: how clearly the seller's offering can be positioned against what they use today.
 - Win probability: given competitive dynamics, how likely is a win?
-Detect vendor signals from tech-stack fingerprints, integration mentions,
-and job-posting tool requirements. Be honest about competitor strengths.
+Identify the current vendor first - from tech-stack fingerprints, integration
+mentions, and job-posting tool requirements - because every dimension above is
+judged relative to it. Be honest about competitor strengths.
 ${NEVER_FABRICATE_RULES}
 ${OUTPUT_CONTRACT}`,
   },
@@ -167,19 +179,4 @@ export function subagentUserMessage(
 
 DISCOVERY BRIEFING:
 ${briefingJson}`;
-}
-
-/**
- * Parse and validate a subagent's raw JSON text.
- * @param raw the model's reply text
- * @returns the validated result
- * @throws Error when the text is not valid JSON matching the schema
- */
-export function parseSubagentResult(raw: string): SubagentResult {
-  const jsonText = extractJsonObject(raw);
-  if (!jsonText) {
-    throw new Error("No JSON object found in subagent response");
-  }
-  const parsed: unknown = JSON.parse(jsonText);
-  return SUBAGENT_RESULT_SCHEMA.parse(parsed);
 }
