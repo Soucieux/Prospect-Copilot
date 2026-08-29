@@ -19,6 +19,10 @@ export interface ProspectSignals {
   recentFundingWithin12Months?: boolean;
   activeJobPostings?: number;
   contractRenewalWindowMonths?: number;
+  /** Count of detected tech-stack entries, the prototype's spend indicator. */
+  techStackCount?: number;
+  /** Whether discovered contacts carry titles, mapping the buying committee. */
+  orgChartMapped?: boolean;
 }
 
 export interface BantDimension {
@@ -38,7 +42,17 @@ export interface MeddicResult {
   elements: {
     code: "M" | "E" | "Dc" | "Dp" | "I" | "C";
     name: string;
-    present: boolean;
+    /**
+     * Share of this element's *assessable* signals that carried evidence, so
+     * a signal this pipeline never collects cannot hold the scale below 100%.
+     */
+    percent: number;
+    /**
+     * Supporting signals. `assessed` is false when nothing in the pipeline
+     * populates that signal, which keeps "looked and found nothing" distinct
+     * from "never looked" and leaves the latter out of the percentage.
+     */
+    checks: { label: string; present: boolean; assessed: boolean }[];
   }[];
 }
 
@@ -86,7 +100,9 @@ const FUNDING_MODERATE_USD = 1_000_000;
 function scoreBudget(signals: ProspectSignals): BantDimension {
   let score = 0;
   const notes: string[] = [];
-  if (signals.fundingTotalUsd !== undefined) {
+  // A reported zero means "no disclosed funding", so it must not score or be
+  // described as a small total the way an actual small raise would be.
+  if (signals.fundingTotalUsd !== undefined && signals.fundingTotalUsd > 0) {
     if (signals.fundingTotalUsd >= FUNDING_STRONG_USD) {
       score += 15;
       notes.push("strong funding total");
@@ -214,30 +230,177 @@ export function scoreBant(signals: ProspectSignals): BantResult {
 }
 
 /**
- * Compute MEDDIC completeness from presence booleans.
- * @param signals element presence flags folded into the signal blob
- * @returns completeness percent and per-element detail
+ * Compute graded MEDDIC completeness from the discovery signal blob.
+ * Each element scores the share of its own supporting signals that carried
+ * evidence, and the overall figure is the mean of the six - the prototype's
+ * model, so a partly evidenced element is not rounded up to "known".
+ * @param signals discovery signals gathered for this prospect
+ * @returns overall completeness plus per-element percentages and checks
  */
-export function scoreMeddic(signals: {
-  metrics?: boolean;
-  economicBuyer?: boolean;
-  decisionCriteria?: boolean;
-  decisionProcess?: boolean;
-  identifyPain?: boolean;
-  champion?: boolean;
-}): MeddicResult {
-  const checks: { code: MeddicResult["elements"][number]["code"]; name: string; present: boolean }[] = [
-    { code: "M", name: "Metrics", present: signals.metrics === true },
-    { code: "E", name: "Economic Buyer", present: signals.economicBuyer === true },
-    { code: "Dc", name: "Decision Criteria", present: signals.decisionCriteria === true },
-    { code: "Dp", name: "Decision Process", present: signals.decisionProcess === true },
-    { code: "I", name: "Identify Pain", present: signals.identifyPain === true },
-    { code: "C", name: "Champion", present: signals.champion === true },
+export function scoreMeddic(signals: ProspectSignals): MeddicResult {
+  const decisionMakers = signals.decisionMakersFound ?? 0;
+  const pains = signals.painPointsDetected ?? 0;
+  const jobs = signals.activeJobPostings ?? 0;
+  // `assessed` records whether this pipeline collects the signal at all, not
+  // whether it happened to find one. Extractor and subagent signals are always
+  // assessed - an omitted value means "looked, found none" and scores zero.
+  // Review and contract-renewal evidence has no collector, so those checks are
+  // assessed only if a future source supplies them, and until then they are
+  // excluded from the percentage instead of capping it below 100%.
+  const reviews = signals.reviewsMentioningPain;
+  const definitions: {
+    code: MeddicResult["elements"][number]["code"];
+    name: string;
+    checks: { label: string; present: boolean; assessed: boolean }[];
+  }[] = [
+    {
+      code: "M",
+      name: "Metrics",
+      checks: [
+        {
+          label: "funding amount",
+          present: (signals.fundingTotalUsd ?? 0) > 0,
+          assessed: true,
+        },
+        {
+          label: "employee count",
+          present: (signals.employeeCount ?? 0) > 0,
+          assessed: true,
+        },
+        {
+          label: "pain points",
+          present: pains > 0,
+          assessed: true,
+        },
+      ],
+    },
+    {
+      code: "E",
+      name: "Economic Buyer",
+      checks: [
+        {
+          label: "C-suite identified",
+          present: signals.cSuiteIdentified === true,
+          assessed: true,
+        },
+        {
+          label: "decision makers found",
+          present: decisionMakers >= 1,
+          assessed: true,
+        },
+      ],
+    },
+    {
+      code: "Dc",
+      name: "Decision Criteria",
+      checks: [
+        {
+          label: "pricing visible",
+          present: signals.hasPricingPage === true,
+          assessed: true,
+        },
+        {
+          label: "tech spend indicators",
+          present:
+            (signals.techStackCount ?? 0) > 0 ||
+            signals.enterpriseTierListed === true,
+          assessed: true,
+        },
+        {
+          label: "reviews mention pain",
+          present: (reviews ?? 0) > 0,
+          assessed: reviews !== undefined,
+        },
+      ],
+    },
+    {
+      code: "Dp",
+      name: "Decision Process",
+      checks: [
+        {
+          label: "org chart mapped",
+          present: signals.orgChartMapped === true,
+          assessed: true,
+        },
+        {
+          label: "multiple decision makers",
+          present: decisionMakers >= 2,
+          assessed: true,
+        },
+        {
+          label: "contract renewal window",
+          present: signals.contractRenewalWindowMonths !== undefined,
+          assessed: signals.contractRenewalWindowMonths !== undefined,
+        },
+      ],
+    },
+    {
+      code: "I",
+      name: "Identify Pain",
+      checks: [
+        {
+          label: "pain points detected",
+          present: pains >= 1,
+          assessed: true,
+        },
+        {
+          label: "relevant job posts",
+          present: jobs > 0,
+          assessed: true,
+        },
+        {
+          label: "competitor complaints",
+          present: (reviews ?? 0) >= 1,
+          assessed: reviews !== undefined,
+        },
+      ],
+    },
+    {
+      code: "C",
+      name: "Champion",
+      checks: [
+        {
+          label: "decision maker present",
+          present: decisionMakers >= 1,
+          assessed: true,
+        },
+        {
+          label: "pain mentioned",
+          present: pains > 0 || (reviews ?? 0) > 0,
+          assessed: true,
+        },
+        {
+          label: "hiring signals",
+          present: jobs > 0,
+          assessed: true,
+        },
+      ],
+    },
   ];
-  const present = checks.filter((c) => c.present).length;
+  const elements = definitions.map((definition) => {
+    const assessed = definition.checks.filter((check) => check.assessed);
+    return {
+      ...definition,
+      percent: assessed.length
+        ? Math.round(
+            (assessed.filter((check) => check.present).length /
+              assessed.length) *
+              100,
+          )
+        : 0,
+    };
+  });
+  const scored = elements.filter((element) =>
+    element.checks.some((check) => check.assessed),
+  );
   return {
-    completenessPercent: Math.round((present / checks.length) * 100),
-    elements: checks,
+    completenessPercent: scored.length
+      ? Math.round(
+          scored.reduce((sum, element) => sum + element.percent, 0) /
+            scored.length,
+        )
+      : 0,
+    elements,
   };
 }
 

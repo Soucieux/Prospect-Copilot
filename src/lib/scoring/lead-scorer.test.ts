@@ -68,28 +68,121 @@ describe("scoreBant", () => {
   });
 });
 
-describe("scoreMeddic", () => {
-  it("returns 100 percent when all six elements are present", () => {
-    const result = scoreMeddic({
-      metrics: true,
-      economicBuyer: true,
-      decisionCriteria: true,
-      decisionProcess: true,
-      identifyPain: true,
-      champion: true,
-    });
-    expect(result.completenessPercent).toBe(100);
-    expect(result.elements).toHaveLength(6);
-  });
-
-  it("returns 0 percent when nothing is present", () => {
-    expect(scoreMeddic({}).completenessPercent).toBe(0);
-  });
-
-  it("treats undefined and false identically", () => {
-    expect(scoreMeddic({ metrics: false }).completenessPercent).toBe(
-      scoreMeddic({}).completenessPercent,
+describe("scoreBant budget funding", () => {
+  it("does not score or label a reported zero as a small funding total", () => {
+    const zero = scoreBant({ fundingTotalUsd: 0 }).dimensions.find(
+      (dimension) => dimension.name === "budget",
     );
+    expect(zero?.score).toBe(0);
+    expect(zero?.evidence).not.toContain("small funding total");
+  });
+
+  it("still scores a genuine small raise", () => {
+    const small = scoreBant({ fundingTotalUsd: 250_000 }).dimensions.find(
+      (dimension) => dimension.name === "budget",
+    );
+    expect(small?.score).toBe(4);
+    expect(small?.evidence).toContain("small funding total");
+  });
+});
+
+describe("scoreMeddic", () => {
+  /**
+   * Read one element's graded percentage out of a MEDDIC result.
+   * @param signals discovery signals to score
+   * @param code the MEDDIC element code
+   * @returns that element's percentage
+   */
+  const percentFor = (signals: ProspectSignals, code: string): number =>
+    scoreMeddic(signals).elements.find((element) => element.code === code)
+      ?.percent ?? -1;
+
+  it("returns 0 percent for every element when nothing was collected", () => {
+    const result = scoreMeddic({});
+    expect(result.completenessPercent).toBe(0);
+    expect(result.elements).toHaveLength(6);
+    expect(result.elements.every((element) => element.percent === 0)).toBe(true);
+  });
+
+  it("grades an element by the share of its signals, not all-or-nothing", () => {
+    // Metrics checks funding, employee count, and pain points: 1 of 3.
+    expect(percentFor({ employeeCount: 120 }, "M")).toBe(33);
+    expect(
+      percentFor({ employeeCount: 120, fundingTotalUsd: 5_000_000 }, "M"),
+    ).toBe(67);
+    expect(
+      percentFor(
+        {
+          employeeCount: 120,
+          fundingTotalUsd: 5_000_000,
+          painPointsDetected: 2,
+        },
+        "M",
+      ),
+    ).toBe(100);
+  });
+
+  it("reaches 100 percent on a two-signal element with both signals", () => {
+    expect(
+      percentFor({ cSuiteIdentified: true, decisionMakersFound: 3 }, "E"),
+    ).toBe(100);
+    expect(percentFor({ decisionMakersFound: 3 }, "E")).toBe(50);
+  });
+
+  it("averages the six element percentages into overall completeness", () => {
+    const result = scoreMeddic(STRONG_SIGNALS);
+    const mean = Math.round(
+      result.elements.reduce((sum, element) => sum + element.percent, 0) /
+        result.elements.length,
+    );
+    expect(result.completenessPercent).toBe(mean);
+  });
+
+  it("lists the missing signals behind a partial element", () => {
+    const metrics = scoreMeddic({ employeeCount: 120 }).elements.find(
+      (element) => element.code === "M",
+    );
+    const missing = metrics?.checks
+      .filter((check) => !check.present)
+      .map((check) => check.label);
+    expect(missing).toEqual(["funding amount", "pain points"]);
+  });
+
+  it("raises Identify Pain once the subagent evidences pain and hiring", () => {
+    expect(percentFor({}, "I")).toBe(0);
+    expect(
+      percentFor({ painPointsDetected: 3, activeJobPostings: 12 }, "I"),
+    ).toBe(100);
+  });
+
+  it("excludes uncollectable signals so every element can still reach 100", () => {
+    const complete = scoreMeddic({
+      fundingTotalUsd: 5_000_000,
+      employeeCount: 120,
+      painPointsDetected: 3,
+      cSuiteIdentified: true,
+      decisionMakersFound: 3,
+      hasPricingPage: true,
+      techStackCount: 4,
+      orgChartMapped: true,
+      activeJobPostings: 12,
+    });
+    expect(complete.completenessPercent).toBe(100);
+    expect(complete.elements.every((element) => element.percent === 100)).toBe(
+      true,
+    );
+  });
+
+  it("marks review and renewal evidence unassessed rather than absent", () => {
+    const elements = scoreMeddic({}).elements;
+    const unassessed = elements.flatMap((element) =>
+      element.checks.filter((check) => !check.assessed).map((c) => c.label),
+    );
+    expect(unassessed).toEqual([
+      "reviews mention pain",
+      "contract renewal window",
+      "competitor complaints",
+    ]);
   });
 });
 
