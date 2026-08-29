@@ -7,11 +7,7 @@ import { z } from "zod";
 import { fetchWithVariants, normalizeUrl } from "@/lib/extract/fetch-page";
 import { analyzeProspect } from "@/lib/extract/analyze-prospect";
 import { htmlToText } from "@/lib/extract/html-to-text";
-import {
-  chatCompletion,
-  structuredChatCompletion,
-  type LlmConfig,
-} from "@/lib/llm";
+import { structuredChatCompletion, type LlmConfig } from "@/lib/llm";
 import type { EmitCallback, MatchDirection } from "@/lib/agent/schemas";
 import { NEVER_FABRICATE_RULES } from "@/lib/skills/subagents";
 import { isLikelyCompanyUrl, resolveCompanyUrl } from "@/lib/agent/router";
@@ -22,7 +18,9 @@ import {
 import {
   RUNTIME_LABEL_DEFAULTS,
   formatRuntimeLabel,
+  mergeLabelSet,
   responseLanguageContext,
+  type LabelSet,
   type RuntimeLabels,
 } from "@/lib/localization";
 import { runGraphWorkerPool } from "@/lib/graph-worker-pool";
@@ -30,27 +28,6 @@ import {
   STRUCTURED_LLM_RETRY_OPTIONS,
   retryOperation,
 } from "@/lib/retry";
-
-/** A dictionary of short UI labels, English keys mapped to their text. */
-export type LabelSet = Record<string, string>;
-
-/**
- * Merge a possibly-partial translated label object over the English
- * defaults: only string, non-empty values for known keys are used.
- * @param defaults the full English label set
- * @param translated raw parsed value from the LLM response, if any
- * @returns the defaults with any valid translated values applied
- */
-function mergeLabels(defaults: LabelSet, translated: unknown): LabelSet {
-  if (typeof translated !== "object" || translated === null) return defaults;
-  const source = translated as Record<string, unknown>;
-  const result: LabelSet = { ...defaults };
-  for (const key of Object.keys(defaults)) {
-    const value = source[key];
-    if (typeof value === "string" && value.trim()) result[key] = value;
-  }
-  return result;
-}
 
 /** English defaults for every static label in the match report and cards. */
 export const MATCH_REPORT_LABELS: LabelSet = {
@@ -100,6 +77,11 @@ export const BUY_MATCH_REPORT_LABELS: LabelSet = {
     'Tell me what you want to buy (e.g. "where can I buy wool blankets?") and I can find and rank the best places for it.',
 };
 
+/**
+ * Select the English report/card copy for one match direction.
+ * @param direction whether candidates should buy from or sell to the user
+ * @returns the buy-mode label set for "buy", otherwise the sell-mode set
+ */
 function reportLabelsFor(direction: MatchDirection): LabelSet {
   return direction === "buy" ? BUY_MATCH_REPORT_LABELS : MATCH_REPORT_LABELS;
 }
@@ -373,9 +355,9 @@ async function suggestCandidates(
         identifier: candidate.url ?? candidate.name,
         nameHint: candidate.name,
       })),
-      labels: mergeLabels(defaultLabels, parsed.labels),
+      labels: mergeLabelSet(defaultLabels, parsed.labels),
     };
-  } catch (caught) {
+  } catch {
     signal?.throwIfAborted();
     return { identifiers: [], labels: defaultLabels };
   }
@@ -586,7 +568,7 @@ export async function scoreMatchCandidatesStage(
           matchLocation,
           signal,
         );
-      } catch (caught) {
+      } catch {
         signal?.throwIfAborted();
         return null;
       }
@@ -834,9 +816,9 @@ Homepage text: ${htmlToText(page.html).slice(0, HOMEPAGE_CHAR_BUDGET)}`;
       founded: extraction.jsonLdOrg?.foundingDate ?? null,
     };
     return labelsToTranslate
-      ? { ...score, labels: mergeLabels(labelsToTranslate, parsed.labels) }
+      ? { ...score, labels: mergeLabelSet(labelsToTranslate, parsed.labels) }
       : score;
-  } catch (caught) {
+  } catch {
     signal?.throwIfAborted();
     return null;
   }

@@ -36,6 +36,7 @@ export interface RuntimeLabels {
   confidenceMedium: string;
   confidenceLow: string;
   confidenceVeryLow: string;
+  confidenceInferred: string;
   reportTemplate: string;
   foundedLabel: string;
   fitLabel: string;
@@ -103,6 +104,7 @@ export const RUNTIME_LABEL_DEFAULTS: RuntimeLabels = {
   confidenceMedium: "Medium",
   confidenceLow: "Low",
   confidenceVeryLow: "Very Low",
+  confidenceInferred: "Inferred",
   reportTemplate: "{skill} report",
   foundedLabel: "Founded",
   fitLabel: "Fit",
@@ -166,7 +168,38 @@ const CONFIDENCE_LABEL_KEYS: Record<string, keyof RuntimeLabels> = {
   Medium: "confidenceMedium",
   Low: "confidenceLow",
   "Very Low": "confidenceVeryLow",
+  Inferred: "confidenceInferred",
 };
+
+/** A dictionary of app-authored display strings keyed by a stable English key. */
+export type LabelSet = Record<string, string>;
+
+/**
+ * Merge an untrusted partial translation over a complete English label set.
+ * Only known keys with non-empty string values are accepted, so a model can
+ * never add, rename, or blank out a label.
+ * @param defaults the complete English label set
+ * @param translated untrusted label object returned by a model
+ * @returns a complete label set containing only known keys
+ */
+export function mergeLabelSet<Labels extends object>(
+  defaults: Labels,
+  translated: unknown,
+): Labels {
+  if (typeof translated !== "object" || translated === null) {
+    return { ...defaults };
+  }
+  const source = translated as Record<string, unknown>;
+  // Both casts stay inside this loop: only keys already present on `defaults`
+  // are written, and only with validated non-empty strings, so the result
+  // still satisfies `Labels`.
+  const merged = { ...defaults } as Record<string, unknown>;
+  for (const key of Object.keys(defaults)) {
+    const value = source[key];
+    if (typeof value === "string" && value.trim()) merged[key] = value;
+  }
+  return merged as Labels;
+}
 
 /**
  * Merge partial router translations over the complete English recovery set.
@@ -174,16 +207,7 @@ const CONFIDENCE_LABEL_KEYS: Record<string, keyof RuntimeLabels> = {
  * @returns a complete runtime label set containing only known keys
  */
 export function mergeRuntimeLabels(translated: unknown): RuntimeLabels {
-  if (typeof translated !== "object" || translated === null) {
-    return { ...RUNTIME_LABEL_DEFAULTS };
-  }
-  const source = translated as Record<string, unknown>;
-  const merged: RuntimeLabels = { ...RUNTIME_LABEL_DEFAULTS };
-  for (const key of Object.keys(RUNTIME_LABEL_DEFAULTS) as (keyof RuntimeLabels)[]) {
-    const value = source[key];
-    if (typeof value === "string" && value.trim()) merged[key] = value;
-  }
-  return merged;
+  return mergeLabelSet(RUNTIME_LABEL_DEFAULTS, translated);
 }
 
 /**
