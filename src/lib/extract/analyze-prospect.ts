@@ -61,7 +61,10 @@ const ENTERPRISE_PATTERN = /enterprise|custom pricing|contact (us|sales) for/i;
 
 const MAX_SOCIAL_PROFILES = 8;
 const MAX_PHONES = 5;
-const MAX_INTERNAL_LINKS = 40;
+// These links are only ever scanned for the six subpage patterns, never sent
+// to a model, so the budget is generous: a large navigation can otherwise use
+// the whole allowance before a footer "about" or "careers" link is reached.
+const MAX_INTERNAL_LINKS = 250;
 
 /**
  * Run all extractions over a fetched homepage.

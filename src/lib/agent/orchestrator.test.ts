@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { assembleReport, PROSPECT_REPORT_LABELS } from "./orchestrator";
+import {
+  assembleReport,
+  scoreProspectBriefing,
+  PROSPECT_REPORT_LABELS,
+  SUBPAGE_PATTERNS,
+} from "./orchestrator";
 import { SUBAGENTS } from "@/lib/skills/subagents";
+import { scoreMeddic } from "@/lib/scoring/lead-scorer";
+import { RUNTIME_LABEL_DEFAULTS } from "@/lib/localization";
 import type { SubagentResult, SynthesisResult } from "./schemas";
 
 const BRIEFING = {
@@ -71,6 +78,96 @@ const BASE_SYNTHESIS: Omit<SynthesisResult, "labels"> = {
   },
 };
 
+describe("SUBPAGE_PATTERNS", () => {
+  /**
+   * Find the subpage name a candidate link would be discovered as.
+   * @param url absolute same-origin candidate link
+   * @returns the matching subpage name, or null when none matches
+   */
+  const matchName = (url: string): string | null =>
+    SUBPAGE_PATTERNS.find((entry) => entry.pattern.test(url))?.name ?? null;
+
+  it("matches bare paths and trailing slashes", () => {
+    expect(matchName("https://acme.example.com/pricing")).toBe("pricing");
+    expect(matchName("https://acme.example.com/about/")).toBe("about");
+  });
+
+  it("still matches when a tracking query string follows the path", () => {
+    // buffer.com hangs ?cta=... off its own nav links; requiring a bare path
+    // dropped its pricing and about pages from discovery entirely.
+    expect(
+      matchName("https://buffer.com/pricing?cta=bufferSite-globalNav-pricing"),
+    ).toBe("pricing");
+    expect(matchName("https://acme.example.com/careers?utm_source=nav")).toBe(
+      "careers",
+    );
+  });
+
+  it("still matches when a fragment follows the path", () => {
+    expect(matchName("https://acme.example.com/contact#form")).toBe("contact");
+  });
+
+  it("does not match an unrelated path that merely contains the word", () => {
+    expect(matchName("https://acme.example.com/pricing-guide-for-teams")).toBeNull();
+  });
+});
+
+describe("scoreProspectBriefing", () => {
+  /**
+   * Build settled results where the Opportunity Scoring subagent reports the
+   * signals no page extractor can read.
+   * @param discoverySignals evidence-backed signals from that subagent
+   * @returns settled results in SUBAGENTS order
+   */
+  const resultsWithSignals = (
+    discoverySignals?: SubagentResult["discoverySignals"],
+  ): PromiseSettledResult<SubagentResult>[] =>
+    SUBAGENTS.map((definition) => ({
+      status: "fulfilled" as const,
+      value:
+        definition.category === "opportunityQuality"
+          ? { ...SUBAGENT_RESULT, discoverySignals }
+          : SUBAGENT_RESULT,
+    }));
+
+  it("floors Need and Timeline when no subagent signals arrive", () => {
+    const { bant } = scoreProspectBriefing(BRIEFING, resultsWithSignals());
+    const need = bant.dimensions.find((d) => d.name === "need");
+    const timeline = bant.dimensions.find((d) => d.name === "timeline");
+    expect(need?.score).toBe(0);
+    expect(timeline?.score).toBe(0);
+  });
+
+  it("lifts Need and Timeline from the subagent's evidenced signals", () => {
+    const { bant } = scoreProspectBriefing(
+      BRIEFING,
+      resultsWithSignals({
+        painPointsDetected: 3,
+        activeJobPostings: 12,
+        recentFundingWithin12Months: true,
+      }),
+    );
+    const need = bant.dimensions.find((d) => d.name === "need");
+    const timeline = bant.dimensions.find((d) => d.name === "timeline");
+    expect(need?.score).toBeGreaterThan(0);
+    expect(timeline?.score).toBeGreaterThan(0);
+  });
+
+  it("raises MEDDIC completeness once those signals arrive", () => {
+    const withoutSignals = scoreProspectBriefing(
+      BRIEFING,
+      resultsWithSignals(),
+    );
+    const withSignals = scoreProspectBriefing(
+      BRIEFING,
+      resultsWithSignals({ painPointsDetected: 3, activeJobPostings: 12 }),
+    );
+    expect(withSignals.meddic.completenessPercent).toBeGreaterThan(
+      withoutSignals.meddic.completenessPercent,
+    );
+  });
+});
+
 describe("assembleReport", () => {
   it("uses the English defaults when synthesis carries no labels", () => {
     const markdown = assembleReport(
@@ -88,15 +185,11 @@ describe("assembleReport", () => {
     expect(markdown).toContain("## Company Research");
   });
 
-  it("substitutes translated section headers, categories, subagent names, and confidence tags", () => {
+  it("substitutes translated section headers from the synthesis label set", () => {
     const labels = {
       ...PROSPECT_REPORT_LABELS,
       scoreBreakdown: "Répartition du score",
       executiveSummary: "Résumé exécutif",
-      cat_companyFit: "Adéquation entreprise",
-      cat_competitivePosition: "Position concurrentielle",
-      sub_companyFit: "Recherche d'entreprise",
-      conf_High: "Élevée",
     };
     const markdown = assembleReport(
       BRIEFING,
@@ -108,24 +201,70 @@ describe("assembleReport", () => {
     );
     expect(markdown).toContain("## Répartition du score");
     expect(markdown).toContain("## Résumé exécutif");
+  });
+
+  it("takes categories, subagent names, and confidence from the router labels", () => {
+    const markdown = assembleReport(
+      BRIEFING,
+      RESULTS,
+      COMPOSITE,
+      BASE_SYNTHESIS,
+      BANT,
+      null,
+      {
+        ...RUNTIME_LABEL_DEFAULTS,
+        categoryCompanyFit: "Adéquation entreprise",
+        agentCompanyResearch: "Recherche d'entreprise",
+        confidenceHigh: "Élevée",
+      },
+    );
     expect(markdown).toContain("| Adéquation entreprise |");
     expect(markdown).toContain("## Recherche d'entreprise");
     expect(markdown).toContain("**Confidence:** Élevée");
     expect(markdown).not.toContain("**Confidence:** High");
   });
 
+  it("localizes the Inferred finding confidence the composite scale lacks", () => {
+    const inferredResults: PromiseSettledResult<SubagentResult>[] = SUBAGENTS.map(
+      () => ({
+        status: "fulfilled" as const,
+        value: {
+          ...SUBAGENT_RESULT,
+          findings: [
+            {
+              claim: "Likely mid-market",
+              evidence: "Team page size",
+              confidence: "Inferred" as const,
+            },
+          ],
+        },
+      }),
+    );
+    const markdown = assembleReport(
+      BRIEFING,
+      inferredResults,
+      COMPOSITE,
+      BASE_SYNTHESIS,
+      BANT,
+      null,
+      { ...RUNTIME_LABEL_DEFAULTS, confidenceInferred: "Déduit" },
+    );
+    expect(markdown).toContain("| Déduit |");
+    expect(markdown).not.toContain("| Inferred |");
+  });
+
   it("translates degraded category names in the degradation note", () => {
-    const labels = {
-      ...PROSPECT_REPORT_LABELS,
-      cat_competitivePosition: "Position concurrentielle",
-    };
     const markdown = assembleReport(
       BRIEFING,
       RESULTS,
       COMPOSITE,
-      { ...BASE_SYNTHESIS, labels },
+      BASE_SYNTHESIS,
       BANT,
       null,
+      {
+        ...RUNTIME_LABEL_DEFAULTS,
+        categoryCompetitivePosition: "Position concurrentielle",
+      },
     );
     expect(markdown).toContain("Position concurrentielle");
     expect(markdown).not.toContain("competitivePosition");
@@ -155,6 +294,56 @@ describe("assembleReport", () => {
     expect(markdown).toContain("## BANTシグナル");
     expect(markdown).toContain("| 予算 | 15/25 | 料金ページがあります。 |");
     expect(markdown).not.toContain("Has a pricing page.");
+  });
+
+  it("renders graded MEDDIC percentages only when completeness was computed", () => {
+    const withMeddic = assembleReport(
+      BRIEFING,
+      RESULTS,
+      COMPOSITE,
+      BASE_SYNTHESIS,
+      BANT,
+      null,
+      RUNTIME_LABEL_DEFAULTS,
+      scoreMeddic({ employeeCount: 120, cSuiteIdentified: true }),
+    );
+    expect(withMeddic).toContain("## MEDDIC Completeness");
+    expect(withMeddic).toContain("overall MEDDIC completeness");
+    // Metrics carries 1 of its 3 signals: the row grades it, not yes/no.
+    expect(withMeddic).toContain("| Metrics | 33% |");
+    expect(withMeddic).toContain("funding amount, pain points");
+
+    const withoutMeddic = assembleReport(
+      BRIEFING,
+      RESULTS,
+      COMPOSITE,
+      BASE_SYNTHESIS,
+      BANT,
+      null,
+    );
+    expect(withoutMeddic).not.toContain("MEDDIC");
+  });
+
+  it("uses translated MEDDIC element names from the synthesis labels", () => {
+    const markdown = assembleReport(
+      BRIEFING,
+      RESULTS,
+      COMPOSITE,
+      {
+        ...BASE_SYNTHESIS,
+        labels: {
+          ...PROSPECT_REPORT_LABELS,
+          meddicSignals: "Exhaustivité MEDDIC",
+          meddicMetrics: "Indicateurs",
+        },
+      },
+      BANT,
+      null,
+      RUNTIME_LABEL_DEFAULTS,
+      scoreMeddic({}),
+    );
+    expect(markdown).toContain("## Exhaustivité MEDDIC");
+    expect(markdown).toContain("| Indicateurs | 0% |");
   });
 
   it("never invents scores, weights, or evidence while substituting labels", () => {
