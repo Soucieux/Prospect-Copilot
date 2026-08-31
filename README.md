@@ -6,6 +6,47 @@ Built with Next.js (App Router), TypeScript, LangGraph, and LangChain, powered
 by an approved OpenAI-compatible LLM endpoint (default: DeepSeek at
 `https://api.deepseek.com`, model `deepseek-chat`).
 
+## Architecture
+
+### AI & Intelligence
+
+| Responsibility | Component and role |
+|---|---|
+| Workflow orchestration | LangGraph owns typed request state, routing, branches, bounded retries, and prospect/match/standalone/chat subgraphs; no server-side checkpointer is configured |
+| Model integration | LangChain's `ChatOpenAI` adapter handles approved OpenAI-compatible calls, streaming, and Zod-validated structured output; LangChain agents do not control the audit stages |
+| Language model | User-configured OpenAI-compatible endpoint; the default is DeepSeek `deepseek-chat`, with the user's key supplied per request |
+| Retrieval boundary | Answers use fetched page evidence; this project does not maintain a local embedding model or vector database |
+
+### Frontend & Presentation
+
+| Responsibility | Component and role |
+|---|---|
+| Web interface | React, TypeScript, and Next.js App Router render conversations, report cards, and settings |
+
+### Backend & Application Logic
+
+| Responsibility | Component and role |
+|---|---|
+| Request endpoint | The Next.js `/api/chat` route streams progress and results using server-sent events (SSE) |
+| Analysis and scoring | Five prospect analyses supply evidenced facts; deterministic modules calculate the composite score, BANT, and MEDDIC before model synthesis |
+| Product matching | Candidate resolution, scoring, and formatting run as separate graph stages with bounded concurrency |
+
+### Data & Storage
+
+| Responsibility | Component and role |
+|---|---|
+| Conversation storage | Browser IndexedDB stores conversations and reports; no server-side conversation database is configured |
+
+### Integrations & Security
+
+| Responsibility | Component and role |
+|---|---|
+| Evidence acquisition | Deterministic TypeScript fetches and extracts company pages through server-side request forgery (SSRF) protections and bounded worker pools |
+
+Architecture inventory updated and grouped by primary responsibility on 2026-08-31 from the
+current source and dependency manifest. All component rows are retained; this documentation
+change does not alter the application runtime or its package version.
+
 ## How it works
 
 1. Type a message in the chat page. A stateless LangGraph request workflow asks the intent router to classify it against six skills: **prospect** (full audit), **research**, **qualify**, **contacts**, **outreach**, **match** (rank candidate prospects for a product) - or plain chat.
