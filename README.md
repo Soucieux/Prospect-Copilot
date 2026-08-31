@@ -1,52 +1,72 @@
 # Prospect Copilot
 
+<!-- project-control:section=overview -->
+## Overview
+
 A TypeScript rewrite of [`zubair-trabzada/ai-sales-team-claude`](https://github.com/zubair-trabzada/ai-sales-team-claude) as a standalone web app: a chat page where one message routes automatically into a full prospect audit, one of four standalone research skills, or a ranked buy/sell product match.
 
 Built with Next.js (App Router), TypeScript, LangGraph, and LangChain, powered
 by an approved OpenAI-compatible LLM endpoint (default: DeepSeek at
 `https://api.deepseek.com`, model `deepseek-chat`).
 
+<!-- project-control:section=architecture -->
 ## Architecture
 
 ### AI & Intelligence
 
-| Responsibility | Component and role |
+| Technology or concept | Use in this project |
 |---|---|
-| Workflow orchestration | LangGraph owns typed request state, routing, branches, bounded retries, and prospect/match/standalone/chat subgraphs; no server-side checkpointer is configured |
-| Model integration | LangChain's `ChatOpenAI` adapter handles approved OpenAI-compatible calls, streaming, and Zod-validated structured output; LangChain agents do not control the audit stages |
-| Language model | User-configured OpenAI-compatible endpoint; the default is DeepSeek `deepseek-chat`, with the user's key supplied per request |
-| Retrieval boundary | Answers use fetched page evidence; this project does not maintain a local embedding model or vector database |
+| LangGraph | Owns typed request state, routing, prospect/match/standalone/chat subgraphs, branches, and bounded retries; no server-side checkpointer is configured. |
+| LangChain | Its ChatOpenAI adapter handles approved OpenAI-compatible model calls, streaming, and structured output; LangChain agents do not control audit stages. |
+| DeepSeek deepseek-chat | Default hosted language model. Users may configure an approved OpenAI-compatible endpoint; their key is supplied per request. |
+| BANT | A deterministic sales-qualification diagnostic computed from evidenced facts, separate from the composite score. |
+| MEDDIC | A deterministic evidence-completeness diagnostic; it does not change the composite prospect score. |
 
 ### Frontend & Presentation
 
-| Responsibility | Component and role |
+| Technology or concept | Use in this project |
 |---|---|
-| Web interface | React, TypeScript, and Next.js App Router render conversations, report cards, and settings |
+| React | Builds conversations, report cards, settings, and other interactive UI. |
+| React DOM | Renders React components in the browser. |
+| Next.js | App Router supplies page routing and the server /api/chat endpoint. |
+| TypeScript | Adds types to frontend code, graph state, evidence processing, and deterministic scoring. |
+| react-markdown | Renders Markdown answers and report content. |
+| remark-gfm | Adds GitHub Flavored Markdown features, including tables, to rendered answers. |
 
 ### Backend & Application Logic
 
-| Responsibility | Component and role |
+| Technology or concept | Use in this project |
 |---|---|
-| Request endpoint | The Next.js `/api/chat` route streams progress and results using server-sent events (SSE) |
-| Analysis and scoring | Five prospect analyses supply evidenced facts; deterministic modules calculate the composite score, BANT, and MEDDIC before model synthesis |
-| Product matching | Candidate resolution, scoring, and formatting run as separate graph stages with bounded concurrency |
+| Node.js | Runs the Next.js server and local development/build commands. |
+| Zod | Validates structured model outputs before business logic uses them. |
+| Cheerio | Parses fetched company pages into evidence and contact signals. |
+| Bounded concurrency | Limits candidate resolution and scoring workers; formatting is a separate graph stage. |
+| Composite scoring | Combines five prospect analyses using deterministic calculations rather than asking a model to invent a score. |
 
 ### Data & Storage
 
-| Responsibility | Component and role |
+| Technology or concept | Use in this project |
 |---|---|
-| Conversation storage | Browser IndexedDB stores conversations and reports; no server-side conversation database is configured |
+| IndexedDB | Stores conversations and generated reports in the browser; no server-side conversation database. |
+| idb-keyval | Provides the key-value access layer for IndexedDB persistence. |
+| localStorage | Retains the user's API settings/key in their browser; the server does not persist them. |
 
 ### Integrations & Security
 
-| Responsibility | Component and role |
+| Technology or concept | Use in this project |
 |---|---|
-| Evidence acquisition | Deterministic TypeScript fetches and extracts company pages through server-side request forgery (SSRF) protections and bounded worker pools |
+| Server-sent events (SSE) | Streams progress and results from /api/chat to the browser. |
+| OpenAI-compatible API | The allowed interface for user-configured hosted model endpoints; does not imply use of an OpenAI model. |
+| ipaddr.js | Classifies resolved IP addresses for outbound-request safety checks. |
+| Server-side request forgery (SSRF) protection | Validates public destinations and redirects before fetching page evidence, with bounded worker pools. |
 
-Architecture inventory updated and grouped by primary responsibility on 2026-08-31 from the
-current source and dependency manifest. All component rows are retained; this documentation
-change does not alter the application runtime or its package version.
+Answers use fetched page evidence; no local embedding model or vector database is maintained.
 
+Architecture inventory updated on 2026-08-31 from the current source and dependency manifest.
+Each technology or concept has its own row within a category; descriptions retain its project-specific role.
+This documentation change does not alter the application runtime or its package version.
+
+<!-- project-control:section=workflows -->
 ## How it works
 
 1. Type a message in the chat page. A stateless LangGraph request workflow asks the intent router to classify it against six skills: **prospect** (full audit), **research**, **qualify**, **contacts**, **outreach**, **match** (rank candidate prospects for a product) - or plain chat.
@@ -231,3 +251,10 @@ services while still allowing an administrator to opt in a local provider.
 
 - Settings (base URL, model, API key): `localStorage` only.
 - Conversations and reports: IndexedDB in the browser. No server-side database exists; the server is stateless.
+
+<!-- project-control:section=history -->
+## Change log
+
+| Date | Updates |
+|---|---|
+| 2026-08-31 | Separated every architecture technology/concept into its own categorized row and added stable README section mappings for Project Control. No runtime, dependency, or deployment change. |
