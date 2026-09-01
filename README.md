@@ -193,6 +193,8 @@ compare Acme Corp, Globex, and Initech
 
 ## Setup
 
+Development guidance is maintained in the [repository instructions](../AGENTS.md); no project-level instruction file is required.
+
 Requires Node.js 20 or newer.
 
 This project runs Next.js 16, whose APIs, conventions, and file layout differ
@@ -255,6 +257,16 @@ services while still allowing an administrator to opt in a local provider.
 <!-- project-control:section=history -->
 ## Change log
 
-| Date | Updates |
-|---|---|
-| 2026-08-31 | Separated every architecture technology/concept into its own categorized row and added stable README section mappings for Project Control. No runtime, dependency, or deployment change. |
+Dates below are Git record dates, not numbered releases or deployment claims. This history
+was reconciled on 2026-08-31 across current and earlier folder names. Related commits are
+grouped without turning dependency/component versions into project versions.
+
+| Date | Updates | Git evidence |
+|---|---|---|
+| 2026-08-31 | Reconciled all 49 retained project commits with the repository summary. Removed the installed Next.js package's nested agent-instruction file; the version-specific guidance remains above and root AGENTS.md governs development. No runtime or release-number change. | This documentation commit |
+| 2026-08-31 | Added and categorized the source-backed architecture inventory, then separated each technology/concept into its own row and mapped README sections for Project Control. Documentation only; no runtime, dependency, or deployment change. | `7bcc353`, `d2ccc14` |
+| 2026-08-29 | Documented evidenced scoring and team-page contacts, corrected the composite-score/BANT/MEDDIC distinction, and added the source-layout table. Disabled Next.js-generated agent-rule files while keeping its version-specific development guidance in the README. | `ceb62e8`, `ad4d81f`, `44dfe85` |
+| 2026-08-28 | Shared label merging; fed evidenced subagent signals into deterministic scorers; graded MEDDIC completeness and corrected zero-funding budgets. Rebuilt team-page contact extraction, excluded people employed elsewhere, widened subpage discovery, wired the updated scoring, and removed dead code under strict unused checks. | `a74eb04`, `60fa659`, `f7dbea5`, `a9e0745`, `e7ece93`, `7b38a6d` |
+| 2026-08-23 | Upgraded the runtime/dependencies and integrated LangChain model adapters and typed LangGraph request/subgraphs. Added bounded worker pools, classified retries, provider-endpoint allowlisting, safer website fetching, retained-history limits, cancellation preservation, and candidate-resolution limits. Normalized extracted company data, improved chat/report persistence and mobile UI, documented the workflow, and corrected import ordering. | `dcc4acc`, `b7b92ca`, `ea1da03`, `120c988`, `fd030a9`, `969b66d`, `3f429c0`, `ddb56b0`, `de24386`, `ba5162e`, `16ef695`, `223bb85`, `462a128` |
+| 2026-08-22 | Introduced match schemas, routing, bounded candidate scoring, ranked reports, and selectable company cards; shared the event callback type. Replaced the separate search API with LLM-based company-URL and candidate discovery plus fetched-page verification. Added richer location/founding fields, user-language responses, multilingual persistent reports, cancellation, shared buy/sell matching, and explicit geographic constraints. Updated the associated documentation and regressions. | `2e36baf`, `9b61dbd`, `2b47ade`, `683f407`, `631010f`, `37fd8e7`, `0f6d03f`, `afef726`, `e60f1ce`, `648da3e`, `0566a5b`, `f1a20f0`, `a8044ed`, `27115c6`, `0652109`, `21387a8`, `131b083`, `3a7dd86`, `62cc0d9` |
+| 2026-08-21 | Introduced the standalone BYOK prospect-audit application and four research skills. Switched the default provider to DeepSeek and repaired settings/sidebar behavior. Hardened the initial pipeline and JSON extraction, added focused coverage, and detected selling context from the conversation for scoring and reports. | `dd70a0d`, `85bf44c`, `8b0d27f`, `48ca88d`, `e285d96`, `87831b6` |
