@@ -261,8 +261,13 @@ Dates below are Git record dates, not numbered releases or deployment claims. Th
 was reconciled on 2026-08-31 across current and earlier folder names. Related commits are
 grouped without turning dependency/component versions into project versions.
 
+**Change-history numbering:** Prospect Copilot uses dated history and does not assign
+project-level version or build numbers. Follow the repository-wide
+[version and build-number policy](../README.md#version-and-build-number-policy).
+
 | Date | Updates | Git evidence |
 |---|---|---|
+| 2026-09-02 | Declared Prospect Copilot's dated-history mode and linked it to the centralized repository policy. Runtime behavior, dependencies, deployment status, and project numbering remain unchanged. | This documentation commit |
 | 2026-08-31 | Reconciled all 49 retained project commits with the repository summary. Removed the installed Next.js package's nested agent-instruction file; the version-specific guidance remains above and root AGENTS.md governs development. No runtime or release-number change. | This documentation commit |
 | 2026-08-31 | Added and categorized the source-backed architecture inventory, then separated each technology/concept into its own row and mapped README sections for Project Control. Documentation only; no runtime, dependency, or deployment change. | `7bcc353`, `d2ccc14` |
 | 2026-08-29 | Documented evidenced scoring and team-page contacts, corrected the composite-score/BANT/MEDDIC distinction, and added the source-layout table. Disabled Next.js-generated agent-rule files while keeping its version-specific development guidance in the README. | `ceb62e8`, `ad4d81f`, `44dfe85` |
