@@ -6,7 +6,7 @@
 import { z } from "zod";
 
 /** Confidence tag every factual finding must carry. */
-export const CONFIDENCE_VALUES = ["High", "Medium", "Low", "Inferred"] as const;
+const CONFIDENCE_VALUES = ["High", "Medium", "Low", "Inferred"] as const;
 
 /** Structured output every analysis subagent must return. */
 export const SUBAGENT_RESULT_SCHEMA = z.object({
@@ -105,6 +105,67 @@ export const SYNTHESIS_SCHEMA = z.object({
 
 export type SynthesisResult = z.infer<typeof SYNTHESIS_SCHEMA>;
 
+/** One ranked match candidate rendered as a card. */
+export const MATCH_CANDIDATE_SCHEMA = z.object({
+  url: z.string(),
+  companyName: z.string(),
+  score: z.number(),
+  description: z.string(),
+  fitReason: z.string(),
+  location: z.string().nullable(),
+  founded: z.string().nullable(),
+});
+
+/**
+ * The report payload, and the single definition of its shape: `ReportState`
+ * in chat-types is inferred from this, so the wire validator and the type the
+ * page renders can never drift apart.
+ */
+export const REPORT_STATE_SCHEMA = z.object({
+  kind: z.enum([
+    "prospect",
+    "research",
+    "qualify",
+    "contacts",
+    "outreach",
+    "match",
+  ]),
+  companyName: z.string(),
+  url: z.string().nullable(),
+  // Standalone skills deliver a document without a numeric scorecard.
+  score: z.number().nullable(),
+  grade: z.string().nullable(),
+  confidence: z.string().nullable(),
+  categories: z
+    .array(
+      z.object({
+        category: z.string(),
+        score: z.number(),
+        weight: z.number(),
+      }),
+    )
+    .nullable(),
+  /** Populated only for kind "match": the ranked candidates to render as cards. */
+  matches: z.array(MATCH_CANDIDATE_SCHEMA).nullable(),
+  /** Populated only for kind "match": localized card chrome labels. */
+  matchLabels: z
+    .object({
+      founded: z.string(),
+      fit: z.string(),
+      auditHint: z.string(),
+      auditRequestTemplate: z.string(),
+    })
+    .nullable(),
+  /** Localized labels used by the report summary card. */
+  scoreLabels: z.object({
+    grade: z.string(),
+    confidence: z.string(),
+    confidenceValue: z.string(),
+    report: z.string(),
+  }),
+  markdown: z.string(),
+});
+
 /** SSE wire events (discriminated by `type`). */
 export const CHAT_EVENT_SCHEMA = z.discriminatedUnion("type", [
   z.object({ type: z.literal("phase"), phase: z.string(), detail: z.string() }),
@@ -116,65 +177,7 @@ export const CHAT_EVENT_SCHEMA = z.discriminatedUnion("type", [
     score: z.number().optional(),
   }),
   z.object({ type: z.literal("token"), text: z.string() }),
-  z.object({
-    type: z.literal("report"),
-    report: z.object({
-      kind: z.enum([
-        "prospect",
-        "research",
-        "qualify",
-        "contacts",
-        "outreach",
-        "match",
-      ]),
-      companyName: z.string(),
-      url: z.string().nullable(),
-      // Standalone skills deliver a document without a numeric scorecard.
-      score: z.number().nullable(),
-      grade: z.string().nullable(),
-      confidence: z.string().nullable(),
-      categories: z
-        .array(
-          z.object({
-            category: z.string(),
-            score: z.number(),
-            weight: z.number(),
-          }),
-        )
-        .nullable(),
-      // Populated only for kind "match": the ranked candidates to render as cards.
-      matches: z
-        .array(
-          z.object({
-            url: z.string(),
-            companyName: z.string(),
-            score: z.number(),
-            description: z.string(),
-            fitReason: z.string(),
-            location: z.string().nullable(),
-            founded: z.string().nullable(),
-          }),
-        )
-        .nullable(),
-      // Populated only for kind "match": localized card chrome labels.
-      matchLabels: z
-        .object({
-          founded: z.string(),
-          fit: z.string(),
-          auditHint: z.string(),
-          auditRequestTemplate: z.string(),
-        })
-        .nullable(),
-      // Localized scorecard chrome for every report kind.
-      scoreLabels: z.object({
-        grade: z.string(),
-        confidence: z.string(),
-        confidenceValue: z.string(),
-        report: z.string(),
-      }),
-      markdown: z.string(),
-    }),
-  }),
+  z.object({ type: z.literal("report"), report: REPORT_STATE_SCHEMA }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);
 

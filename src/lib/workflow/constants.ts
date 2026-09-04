@@ -32,6 +32,10 @@ export const WORKFLOW_STATUS = {
 /** Internal phase identifiers preserved on the existing SSE contract. */
 export const WORKFLOW_PHASE = {
   routing: "routing",
+  discovery: "discovery",
+  analysis: "analysis",
+  synthesis: "synthesis",
+  done: "done",
 } as const;
 
 /** LangGraph retry settings for one structured routing request. */

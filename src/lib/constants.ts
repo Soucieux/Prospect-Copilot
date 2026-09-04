@@ -8,8 +8,15 @@ export const LLM_BASE_URL_HEADER = "x-llm-base-url";
 export const LLM_API_KEY_HEADER = "x-llm-api-key";
 export const LLM_MODEL_HEADER = "x-llm-model";
 
-/** localStorage key for the persisted settings object. */
+/** localStorage key for the persisted non-secret settings object. */
 export const SETTINGS_STORAGE_KEY = "prospect-copilot:settings";
+
+/**
+ * localStorage key holding the API key alone. The key is stored apart from the
+ * rest of the settings so anything that reads, displays, or exports the
+ * settings record cannot carry the credential along with it.
+ */
+export const API_KEY_STORAGE_KEY = "prospect-copilot:api-key";
 
 /** localStorage key used to reopen the last active saved conversation. */
 export const ACTIVE_CONVERSATION_STORAGE_KEY =

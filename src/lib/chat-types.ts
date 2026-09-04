@@ -1,7 +1,14 @@
 /**
  * Shared client-side chat types - used by the page and the
- * IndexedDB conversation store.
+ * IndexedDB conversation store. The wire-carried shapes are inferred from
+ * their Zod schemas so the validator and the rendered type cannot diverge.
  */
+
+import type { z } from "zod";
+import type {
+  MATCH_CANDIDATE_SCHEMA,
+  REPORT_STATE_SCHEMA,
+} from "@/lib/agent/schemas";
 
 export interface ProgressEvent {
   kind: "phase" | "agent";
@@ -11,42 +18,9 @@ export interface ProgressEvent {
   score?: number;
 }
 
-export interface MatchCandidate {
-  url: string;
-  companyName: string;
-  score: number;
-  description: string;
-  fitReason: string;
-  location: string | null;
-  founded: string | null;
-}
+export type MatchCandidate = z.infer<typeof MATCH_CANDIDATE_SCHEMA>;
 
-export interface ReportState {
-  kind: "prospect" | "research" | "qualify" | "contacts" | "outreach" | "match";
-  companyName: string;
-  url: string | null;
-  score: number | null;
-  grade: string | null;
-  confidence: string | null;
-  categories: { category: string; score: number; weight: number }[] | null;
-  /** Populated only for kind "match": the ranked candidates to render as cards. */
-  matches: MatchCandidate[] | null;
-  /** Populated only for kind "match": localized card chrome labels. */
-  matchLabels: {
-    founded: string;
-    fit: string;
-    auditHint: string;
-    auditRequestTemplate: string;
-  } | null;
-  /** Localized labels used by the report summary card. */
-  scoreLabels: {
-    grade: string;
-    confidence: string;
-    confidenceValue: string;
-    report: string;
-  };
-  markdown: string;
-}
+export type ReportState = z.infer<typeof REPORT_STATE_SCHEMA>;
 
 export interface ChatMessage {
   role: "user" | "assistant";
