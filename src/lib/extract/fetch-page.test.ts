@@ -45,6 +45,15 @@ describe("normalizeUrl", () => {
   it("rejects blocked hostnames", () => {
     expect(() => normalizeUrl("http://localhost:3000")).toThrow(/Blocked/);
   });
+
+  it("rejects a non-web port on an otherwise allowed public host", () => {
+    expect(() => normalizeUrl("https://acme.com:22")).toThrow(/Blocked port/);
+    expect(() => normalizeUrl("https://acme.com:6379")).toThrow(/Blocked port/);
+  });
+
+  it("keeps a web port that is not the scheme default", () => {
+    expect(normalizeUrl("http://acme.com:443").port).toBe("443");
+  });
 });
 
 describe("isPublicIp", () => {
@@ -150,6 +159,23 @@ describe("fetchPage", () => {
     await expect(
       fetchPage("https://example.com", undefined, 0, runtime),
     ).rejects.toMatchObject({ code: "redirect_limit" });
+  });
+
+  it("rejects a redirect that lands on a non-web port", async () => {
+    const runtime: FetchPageRuntime = {
+      resolveAddresses: async () => ["93.184.216.34"],
+      request: async () => ({
+        status: 302,
+        location: "https://example.com:22/",
+        html: "",
+        retryAfterMs: null,
+      }),
+      timeoutMs: 1_000,
+    };
+
+    await expect(
+      fetchPage("https://example.com", undefined, 0, runtime),
+    ).rejects.toMatchObject({ code: "blocked_host" });
   });
 
   it("classifies the internal request deadline as a retryable timeout", async () => {

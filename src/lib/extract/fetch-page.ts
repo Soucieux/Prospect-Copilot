@@ -38,6 +38,8 @@ const MAX_NETWORK_ATTEMPTS = 3;
 const INITIAL_RETRY_DELAY_MS = 300;
 const MAX_RETRY_DELAY_MS = 2_000;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+// Deliberately separate from the LLM retry policy in retry.ts: page fetching
+// and provider calls are independent decisions that happen to agree today.
 const RETRYABLE_HTTP_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const ACCEPTED_CONTENT_TYPES = [
   "text/html",
@@ -49,6 +51,12 @@ const ACCEPTED_CONTENT_TYPES = [
 const USER_AGENT =
   "Mozilla/5.0 (compatible; ProspectCopilot/0.1; +https://github.com) ";
 
+// A URL may only reach a normal web port. Without this the fetcher would
+// connect to any port on a public host, so distinct failure categories
+// (connection_reset vs timeout vs http_status) would report which ports are
+// open - turning prospect discovery into a port scanner.
+const ALLOWED_PORTS = new Set(["80", "443"]);
+
 const BLOCKED_HOSTNAMES = new Set([
   "localhost",
   "localhost.localdomain",
@@ -57,10 +65,10 @@ const BLOCKED_HOSTNAMES = new Set([
 ]);
 
 /**
- * Reject disallowed protocols and statically-blocked hostnames. Shared by
- * the initial URL parse and by every redirect hop.
+ * Reject disallowed protocols, ports, and statically-blocked hostnames.
+ * Shared by the initial URL parse and by every redirect hop.
  * @param url the URL to check
- * @throws Error when the protocol or hostname is not allowed
+ * @throws Error when the protocol, port, or hostname is not allowed
  */
 function assertAllowedProtocolAndHost(url: URL): void {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -74,6 +82,9 @@ function assertAllowedProtocolAndHost(url: URL): void {
       "blocked_host",
       `Blocked hostname: ${url.hostname}`,
     );
+  }
+  if (url.port !== "" && !ALLOWED_PORTS.has(url.port)) {
+    throw new FetchPageError("blocked_host", `Blocked port: ${url.port}`);
   }
 }
 
@@ -139,7 +150,12 @@ export function isPublicIp(ip: string): boolean {
   }
 }
 
-/** Await an operation while allowing its caller to stop waiting immediately. */
+/**
+ * Await an operation while allowing its caller to stop waiting immediately.
+ * @param operation the promise to await
+ * @param signal optional cancellation signal
+ * @returns the operation's value, or a rejection carrying the abort reason
+ */
 function withAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return operation;
   signal.throwIfAborted();
@@ -165,10 +181,12 @@ function withAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
  * second lookup happens later - so there is no window for DNS to change
  * between validation and connection.
  * @param hostname the host to resolve
+ * @param signal optional cancellation signal for the DNS lookup
  * @returns all resolved addresses, guaranteed public
  * @throws Error when resolution fails or any address is non-public
+ * @internal exported for deterministic transport-boundary tests
  */
-async function resolvePublicAddresses(
+export async function resolvePublicAddresses(
   hostname: string,
   signal?: AbortSignal,
 ): Promise<string[]> {
@@ -211,20 +229,6 @@ async function resolvePublicAddresses(
   return records.map((record) => record.address);
 }
 
-/**
- * Check whether a hostname resolves to a public address.
- * @param hostname the host to check
- * @returns true when the host is (or resolves to) a public IP
- */
-export async function isPublicHost(hostname: string): Promise<boolean> {
-  try {
-    await resolvePublicAddresses(hostname);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** Parsed response returned by one pinned HTTP request. */
 export interface RawResponse {
   status: number;
@@ -261,8 +265,9 @@ export interface FetchPageRuntime {
  * Parse a Retry-After header into a bounded delay.
  * @param raw header value in seconds or HTTP-date form
  * @returns bounded delay in milliseconds, or null when unusable
+ * @internal exported for deterministic transport-boundary tests
  */
-function parseRetryAfter(raw: string | undefined): number | null {
+export function parseRetryAfter(raw: string | undefined): number | null {
   if (!raw) return null;
   const seconds = Number.parseFloat(raw);
   const delay = Number.isFinite(seconds)
@@ -276,8 +281,9 @@ function parseRetryAfter(raw: string | undefined): number | null {
  * Convert a low-level Node transport failure into a stable category.
  * @param caught original request error
  * @returns classified fetch failure
+ * @internal exported for deterministic transport-boundary tests
  */
-function classifyTransportError(caught: unknown): FetchPageError {
+export function classifyTransportError(caught: unknown): FetchPageError {
   if (caught instanceof FetchPageError) return caught;
   const code =
     typeof caught === "object" && caught !== null && "code" in caught
@@ -322,12 +328,12 @@ export function readPinnedResponse(res: IncomingMessage): Promise<RawResponse> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let receivedBytes = 0;
-    let settled = false;
+    let hasSettled = false;
     const status = res.statusCode ?? 0;
     const contentType = res.headers["content-type"]?.toLowerCase();
     const rejectOnce = (caught: unknown): void => {
-      if (settled) return;
-      settled = true;
+      if (hasSettled) return;
+      hasSettled = true;
       reject(caught);
     };
     res.on("error", rejectOnce);
@@ -344,7 +350,7 @@ export function readPinnedResponse(res: IncomingMessage): Promise<RawResponse> {
       return;
     }
     res.on("data", (chunk: Buffer | string) => {
-      if (settled) return;
+      if (hasSettled) return;
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       receivedBytes += buffer.length;
       if (receivedBytes > MAX_HTML_BYTES) {
@@ -359,8 +365,8 @@ export function readPinnedResponse(res: IncomingMessage): Promise<RawResponse> {
       chunks.push(buffer);
     });
     res.on("end", () => {
-      if (settled) return;
-      settled = true;
+      if (hasSettled) return;
+      hasSettled = true;
       resolve({
         status,
         location: res.headers.location ?? null,
@@ -379,8 +385,9 @@ export function readPinnedResponse(res: IncomingMessage): Promise<RawResponse> {
  * @param pinnedIp the validated address to connect to
  * @param signal abort signal for the shared request timeout
  * @returns status, any Location header, and the (possibly truncated) body
+ * @internal exported for deterministic transport-boundary tests
  */
-function requestPinned(
+export function requestPinned(
   url: URL,
   pinnedIp: string,
   signal: AbortSignal,
@@ -388,15 +395,15 @@ function requestPinned(
   return new Promise((resolve, reject) => {
     const isHttps = url.protocol === "https:";
     const port = url.port ? Number(url.port) : isHttps ? 443 : 80;
-    let settled = false;
+    let hasSettled = false;
     const resolveOnce = (response: RawResponse): void => {
-      if (settled) return;
-      settled = true;
+      if (hasSettled) return;
+      hasSettled = true;
       resolve(response);
     };
     const rejectOnce = (caught: unknown): void => {
-      if (settled) return;
-      settled = true;
+      if (hasSettled) return;
+      hasSettled = true;
       reject(classifyTransportError(caught));
     };
     const onResponse = (res: IncomingMessage): void => {
@@ -469,9 +476,9 @@ export async function fetchPage(
 ): Promise<FetchedPage> {
   let url = normalizeUrl(raw);
   const controller = new AbortController();
-  let timedOut = false;
+  let hasTimedOut = false;
   const timer = setTimeout(() => {
-    timedOut = true;
+    hasTimedOut = true;
     controller.abort();
   }, runtime.timeoutMs);
   const abortFromCaller = (): void => controller.abort(signal?.reason);
@@ -490,14 +497,20 @@ export async function fetchPage(
           `Could not resolve host: ${url.hostname}`,
         );
       }
-      const pinnedIp = addresses[addressAttempt % addresses.length] as string;
+      const pinnedIp = addresses[addressAttempt % addresses.length];
+      if (pinnedIp === undefined) {
+        throw new FetchPageError(
+          "permanent_dns",
+          `Could not resolve host: ${url.hostname}`,
+        );
+      }
       controller.signal.throwIfAborted();
       let response: RawResponse;
       try {
         response = await runtime.request(url, pinnedIp, controller.signal);
       } catch (caught) {
         if (signal?.aborted) signal.throwIfAborted();
-        if (timedOut) {
+        if (hasTimedOut) {
           throw new FetchPageError("timeout", `Timed out fetching ${raw}`, {
             cause: caught,
             retryable: true,
