@@ -73,7 +73,11 @@ export class LlmStructuredOutputError extends Error {
 
 const REQUEST_TIMEOUT_MS = 120_000;
 
-/** Convert the app's stable message shape into LangChain message objects. */
+/**
+ * Convert the app's stable message shape into LangChain message objects.
+ * @param messages app-shaped chat messages in send order
+ * @returns the equivalent LangChain message instances
+ */
 function toLangChainMessages(messages: LlmMessage[]): BaseMessage[] {
   return messages.map((message) => {
     if (message.role === "system") return new SystemMessage(message.content);
@@ -82,7 +86,11 @@ function toLangChainMessages(messages: LlmMessage[]): BaseMessage[] {
   });
 }
 
-/** Convert text or text content blocks from a LangChain message to one string. */
+/**
+ * Convert text or text content blocks from a LangChain message to one string.
+ * @param content raw message content, either a string or content blocks
+ * @returns the concatenated text, or an empty string when none is present
+ */
 function messageText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -127,7 +135,12 @@ const providerFetch: typeof fetch = async (input, init) => {
   });
 };
 
-/** Create one provider model while leaving retries owned by app workflows. */
+/**
+ * Create one provider model while leaving retries owned by app workflows.
+ * @param config per-request BYOK endpoint, key, and model
+ * @param options temperature, JSON mode, and timeout for this call
+ * @returns a configured adapter with provider retries disabled
+ */
 function createModel(
   config: LlmConfig,
   options: LlmCallOptions,
@@ -152,12 +165,16 @@ interface AbortContext {
   cleanup: () => void;
 }
 
-/** Combine the provider timeout with caller cancellation for one operation. */
+/**
+ * Combine the provider timeout with caller cancellation for one operation.
+ * @param options supplies the caller signal and optional timeout override
+ * @returns the merged signal, a timeout probe, and a listener cleanup
+ */
 function createAbortContext(options: LlmCallOptions): AbortContext {
   const controller = new AbortController();
-  let didTimeOut = false;
+  let hasTimedOut = false;
   const timer = setTimeout(() => {
-    didTimeOut = true;
+    hasTimedOut = true;
     controller.abort(new DOMException("LLM request timed out", "TimeoutError"));
   }, options.timeoutMs ?? REQUEST_TIMEOUT_MS);
   const abortFromCaller = (): void => controller.abort(options.signal?.reason);
@@ -165,7 +182,7 @@ function createAbortContext(options: LlmCallOptions): AbortContext {
   else options.signal?.addEventListener("abort", abortFromCaller, { once: true });
   return {
     signal: controller.signal,
-    timedOut: () => didTimeOut,
+    timedOut: () => hasTimedOut,
     cleanup: () => {
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", abortFromCaller);
@@ -173,7 +190,11 @@ function createAbortContext(options: LlmCallOptions): AbortContext {
   };
 }
 
-/** Normalize provider-specific errors into the app's stable error contract. */
+/**
+ * Normalize provider-specific errors into the app's stable error contract.
+ * @param caught unknown failure raised by the provider or adapter
+ * @returns an LlmError carrying the status used for retry decisions
+ */
 function normalizeProviderError(caught: unknown): LlmError {
   if (caught instanceof LlmError) return caught;
   const source =
@@ -188,7 +209,12 @@ function normalizeProviderError(caught: unknown): LlmError {
   );
 }
 
-/** Execute one LangChain invocation under the app's timeout/error contract. */
+/**
+ * Execute one LangChain invocation under the app's timeout/error contract.
+ * @param options caller cancellation and timeout for this invocation
+ * @param operation receives the merged signal and performs the provider call
+ * @returns whatever the operation resolves to
+ */
 async function invokeWithContract<T>(
   options: LlmCallOptions,
   operation: (signal: AbortSignal) => Promise<T>,
@@ -205,7 +231,13 @@ async function invokeWithContract<T>(
   }
 }
 
-/** Non-streaming completion through LangChain's ChatOpenAI adapter. */
+/**
+ * Non-streaming completion through LangChain's ChatOpenAI adapter.
+ * @param config per-request BYOK endpoint, key, and model
+ * @param messages the conversation to send
+ * @param options temperature, JSON mode, timeout, and cancellation
+ * @returns the model's reply as plain text
+ */
 export async function chatCompletion(
   config: LlmConfig,
   messages: LlmMessage[],
@@ -220,7 +252,14 @@ export async function chatCompletion(
   });
 }
 
-/** Parse and validate JSON-mode output through a LangChain runnable. */
+/**
+ * Parse and validate JSON-mode output through a LangChain runnable.
+ * @param config per-request BYOK endpoint, key, and model
+ * @param messages the conversation to send
+ * @param schema Zod schema the reply must satisfy
+ * @param options call settings plus the structured-output operation name
+ * @returns the parsed value inferred from the schema
+ */
 export async function structuredChatCompletion<Schema extends z.ZodTypeAny>(
   config: LlmConfig,
   messages: LlmMessage[],
@@ -260,7 +299,13 @@ export async function structuredChatCompletion<Schema extends z.ZodTypeAny>(
   }
 }
 
-/** Streaming completion while preserving the app's text-delta contract. */
+/**
+ * Streaming completion while preserving the app's text-delta contract.
+ * @param config per-request BYOK endpoint, key, and model
+ * @param messages the conversation to send
+ * @param options temperature, timeout, and cancellation
+ * @yields each non-empty text delta as it arrives
+ */
 export async function* streamChatCompletion(
   config: LlmConfig,
   messages: LlmMessage[],
@@ -283,17 +328,4 @@ export async function* streamChatCompletion(
   } finally {
     abort.cleanup();
   }
-}
-
-/**
- * Extract the {...} JSON object substring from raw LLM text, stripping any
- * markdown code fence around it first. Retained for compatibility and tests.
- */
-export function extractJsonObject(raw: string): string | null {
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-  const candidate = fenced ? fenced[1] : raw;
-  const start = candidate.indexOf("{");
-  const end = candidate.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) return null;
-  return candidate.slice(start, end + 1);
 }

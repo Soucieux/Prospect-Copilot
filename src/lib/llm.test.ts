@@ -5,7 +5,6 @@ import {
   LlmStructuredOutputError,
   LlmTimeoutError,
   chatCompletion,
-  extractJsonObject,
   streamChatCompletion,
   structuredChatCompletion,
 } from "./llm";
@@ -16,6 +15,12 @@ const CONFIG = {
   model: "test-model",
 };
 
+/**
+ * Build one OpenAI-compatible non-streaming completion response.
+ * @param content assistant message text the provider should return
+ * @param status HTTP status for the stubbed response
+ * @returns a Response the stubbed fetch can resolve with
+ */
 function completionResponse(content: string, status = 200): Response {
   return new Response(
     JSON.stringify({
@@ -27,38 +32,6 @@ function completionResponse(content: string, status = 200): Response {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-});
-
-describe("extractJsonObject", () => {
-  it("returns the object span from plain JSON text", () => {
-    expect(extractJsonObject('{"a":1}')).toBe('{"a":1}');
-  });
-
-  it("strips a markdown code fence with a json language tag", () => {
-    expect(extractJsonObject('```json\n{"a":1}\n```')).toBe('{"a":1}');
-  });
-
-  it("strips a markdown code fence with no language tag", () => {
-    expect(extractJsonObject('```\n{"a":1}\n```')).toBe('{"a":1}');
-  });
-
-  it("ignores preamble and trailing text around the object", () => {
-    expect(extractJsonObject('Here is the result: {"a":1} Thanks!')).toBe(
-      '{"a":1}',
-    );
-  });
-
-  it("captures a nested object using the outermost braces", () => {
-    expect(extractJsonObject('{"a":{"b":2}}')).toBe('{"a":{"b":2}}');
-  });
-
-  it("returns null when there is no JSON object", () => {
-    expect(extractJsonObject("no json here")).toBeNull();
-  });
-
-  it("returns null for an unterminated object", () => {
-    expect(extractJsonObject("{ incomplete")).toBeNull();
-  });
 });
 
 describe("chatCompletion", () => {
@@ -204,5 +177,90 @@ describe("streamChatCompletion", () => {
       chunks.push(chunk);
     }
     expect(chunks.join("")).toBe("hello");
+  });
+});
+
+describe("provider failure classification", () => {
+  it("keeps the provider's own status on a rejected request", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("rate limited", { status: 429 })),
+    );
+    await expect(
+      chatCompletion(CONFIG, [{ role: "user", content: "hi" }]),
+    ).rejects.toMatchObject({ status: 429 });
+  });
+
+  it("falls back to 502 when a transport failure carries no status", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("socket hang up");
+      }),
+    );
+    await expect(
+      chatCompletion(CONFIG, [{ role: "user", content: "hi" }]),
+    ).rejects.toMatchObject({ status: 502 });
+  });
+
+  it("surfaces the caller's cancellation rather than a provider error", async () => {
+    const controller = new AbortController();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        controller.abort();
+        throw new Error("aborted downstream");
+      }),
+    );
+    await expect(
+      chatCompletion(CONFIG, [{ role: "user", content: "hi" }], {
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("reports invalid structured output separately from a provider outage", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => completionResponse("this is not json")),
+    );
+    await expect(
+      structuredChatCompletion(
+        CONFIG,
+        [{ role: "user", content: "hi" }],
+        z.object({ skill: z.string() }),
+        { schemaName: "route" },
+      ),
+    ).rejects.toBeInstanceOf(LlmStructuredOutputError);
+  });
+
+  it("reports a provider outage during structured output as a provider error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("gateway down", { status: 502 })),
+    );
+    await expect(
+      structuredChatCompletion(
+        CONFIG,
+        [{ role: "user", content: "hi" }],
+        z.object({ skill: z.string() }),
+        { schemaName: "route" },
+      ),
+    ).rejects.toBeInstanceOf(LlmError);
+  });
+
+  it("surfaces a provider failure raised mid-stream", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("gateway down", { status: 503 })),
+    );
+    const consume = async (): Promise<void> => {
+      for await (const _delta of streamChatCompletion(CONFIG, [
+        { role: "user", content: "hi" },
+      ])) {
+        // drained only to reach the failure
+      }
+    };
+    await expect(consume()).rejects.toBeInstanceOf(LlmError);
   });
 });

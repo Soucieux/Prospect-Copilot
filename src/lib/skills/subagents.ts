@@ -32,7 +32,7 @@ Rules you must follow without exception:
 - Your score is 0-100 where 50 is neutral/unknown.
 - ${RESPOND_IN_USER_LANGUAGE}`;
 
-export const OUTPUT_CONTRACT = `
+const OUTPUT_CONTRACT = `
 Respond with ONLY a JSON object of this exact shape:
 {
   "score": <number 0-100>,

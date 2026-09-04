@@ -20,12 +20,3 @@ export function htmlToText(html: string): string {
   const collapsed = text.replace(/\s+/g, " ").trim();
   return collapsed.slice(0, MAX_TEXT_CHARS);
 }
-
-/**
- * Extract visible text from a Cheerio selection of one element.
- * @param element a Cheerio wrapper around a single node
- * @returns collapsed text
- */
-export function elementText(element: cheerio.Cheerio<never>): string {
-  return element.text().replace(/\s+/g, " ").trim();
-}

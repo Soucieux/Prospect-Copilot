@@ -1,13 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   quickScoreCandidate,
+  resolveCandidates,
+  resolveMatchCandidatesStage,
+  scoreMatchCandidatesStage,
+  type CandidateScore,
+} from "./match";
+import {
   formatMatchSkillResult,
   rankCandidates,
   renderMatchReport,
-  resolveCandidates,
-  runMatchSkill,
-  type CandidateScore,
-} from "./match";
+} from "./match-report";
+import type { EmitCallback, MatchDirection } from "@/lib/agent/schemas";
+import type { RuntimeLabels } from "@/lib/localization";
 import type { LlmConfig } from "@/lib/llm";
 import { RUNTIME_LABEL_DEFAULTS } from "@/lib/localization";
 
@@ -76,6 +81,12 @@ afterEach(() => {
 });
 
 describe("rankCandidates", () => {
+  /**
+   * Build one scored candidate with a given name and score.
+   * @param name company name, also used to build a distinct URL
+   * @param score fit score to rank on
+   * @returns a complete candidate score
+   */
   const make = (name: string, score: number): CandidateScore => ({
     url: `https://${name}.example.com`,
     companyName: name,
@@ -643,7 +654,72 @@ describe("quickScoreCandidate", () => {
   });
 });
 
-describe("runMatchSkill", () => {
+
+/**
+ * Compose the three match stages exactly as the workflow subgraph does, so
+ * these tests exercise the live path rather than a wrapper around it.
+ * @param config LLM credentials
+ * @param sellingContext product context, or null for a neutral judgment
+ * @param candidates companies named directly, or null for discovery mode
+ * @param emit progress callback
+ * @param requesterMessage the requester's message, for language detection
+ * @param responseLanguage language recognized from the latest message
+ * @param runtimeLabels translated progress and scorecard labels
+ * @param matchDirection whether candidates are buyers or sellers
+ * @param matchLocation explicit geographic requirement, when supplied
+ * @param signal cancels discovery and scoring work
+ * @returns the formatted match result
+ */
+async function runMatchStages(
+  config: LlmConfig,
+  sellingContext: string | null,
+  candidates: string[] | null,
+  emit: EmitCallback,
+  requesterMessage: string = "",
+  responseLanguage: string = "English",
+  runtimeLabels: RuntimeLabels = RUNTIME_LABEL_DEFAULTS,
+  matchDirection: MatchDirection = "sell",
+  matchLocation: string | null = null,
+  signal?: AbortSignal,
+): Promise<ReturnType<typeof formatMatchSkillResult>> {
+  const pool = await resolveMatchCandidatesStage(
+    config,
+    sellingContext,
+    candidates,
+    emit,
+    requesterMessage,
+    responseLanguage,
+    runtimeLabels,
+    matchDirection,
+    matchLocation,
+    signal,
+  );
+  const batch = await scoreMatchCandidatesStage(
+    config,
+    pool,
+    sellingContext,
+    candidates,
+    emit,
+    requesterMessage,
+    responseLanguage,
+    runtimeLabels,
+    matchDirection,
+    matchLocation,
+    signal,
+  );
+  return formatMatchSkillResult(
+    pool,
+    batch,
+    sellingContext,
+    candidates,
+    emit,
+    runtimeLabels,
+    matchDirection,
+    matchLocation,
+  );
+}
+
+describe("match stage composition", () => {
   it("scores and ranks a user-supplied candidate list", async () => {
     stubNetwork({
       scoreJson: {
@@ -654,7 +730,7 @@ describe("runMatchSkill", () => {
       },
     });
     const events: unknown[] = [];
-    const { markdown, title, matches } = await runMatchSkill(
+    const { markdown, title, matches } = await runMatchStages(
       CONFIG,
       "payroll software",
       ["https://acme.example.com", "https://globex.example.com"],
@@ -680,7 +756,7 @@ describe("runMatchSkill", () => {
       { length: 10 },
       (_, index) => `https://company-${index + 1}.example.com`,
     );
-    const { matches } = await runMatchSkill(
+    const { matches } = await runMatchStages(
       CONFIG,
       "payroll software",
       candidates,
@@ -692,7 +768,7 @@ describe("runMatchSkill", () => {
   it("emits localized progress and agent logs", async () => {
     stubNetwork({ scoreJson: DEFAULT_SCORE_JSON });
     const events: { type: string; detail?: string }[] = [];
-    await runMatchSkill(
+    await runMatchStages(
       CONFIG,
       "営業分析プラットフォーム",
       ["https://acme.example.com"],
@@ -732,7 +808,7 @@ describe("runMatchSkill", () => {
         fitReason: "Decent fit.",
       },
     });
-    const { markdown } = await runMatchSkill(
+    const { markdown } = await runMatchStages(
       CONFIG,
       "payroll software",
       null,
@@ -744,7 +820,7 @@ describe("runMatchSkill", () => {
 
   it("renders a no-candidates report instead of throwing when nothing resolves", async () => {
     stubNetwork({ suggestJson: { candidates: [] } });
-    const { markdown } = await runMatchSkill(
+    const { markdown } = await runMatchStages(
       CONFIG,
       "payroll software",
       null,
@@ -761,7 +837,7 @@ describe("runMatchSkill", () => {
         labels: { foundedLabel: "Fondée", fitLabel: "Adéquation" },
       },
     });
-    const { markdown, cardLabels } = await runMatchSkill(
+    const { markdown, cardLabels } = await runMatchStages(
       CONFIG,
       "payroll software",
       ["https://acme.example.com", "https://globex.example.com"],
@@ -787,7 +863,7 @@ describe("runMatchSkill", () => {
       },
     });
     vi.mocked(fetchWithVariants).mockRejectedValueOnce(new Error("unreachable"));
-    const { cardLabels } = await runMatchSkill(
+    const { cardLabels } = await runMatchStages(
       CONFIG,
       "payroll software",
       ["https://bad.example.com", "https://good.example.com"],
@@ -815,7 +891,7 @@ describe("runMatchSkill", () => {
         },
       },
     });
-    const { markdown, cardLabels } = await runMatchSkill(
+    const { markdown, cardLabels } = await runMatchStages(
       CONFIG,
       "منصة تحليلات للمبيعات",
       null,
@@ -884,7 +960,7 @@ describe("runMatchSkill", () => {
         },
       },
     });
-    const result = await runMatchSkill(
+    const result = await runMatchStages(
       CONFIG,
       "羊毛毯",
       null,

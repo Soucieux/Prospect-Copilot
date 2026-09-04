@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { routeMessage, routeMessageForWorkflow } from "./router";
+import {
+  isLikelyCompanyUrl,
+  resolveCompanyUrl,
+  routeMessageForWorkflow,
+} from "./router";
+import { LlmError } from "@/lib/llm";
 import type { LlmConfig } from "@/lib/llm";
 
 const CONFIG: LlmConfig = {
@@ -51,7 +56,7 @@ it("preserves caller cancellation instead of converting it to router output fail
   ).rejects.toMatchObject({ name: "AbortError" });
 });
 
-describe("routeMessage", () => {
+describe("routeMessageForWorkflow", () => {
   it("extracts sellingContext when stated in the current message", async () => {
     stubRouterResponse({
       skill: "prospect",
@@ -60,7 +65,7 @@ describe("routeMessage", () => {
       sellingContext: "B2B payroll software for mid-market companies",
       candidates: null,
     });
-    const result = await routeMessage(
+    const result = await routeMessageForWorkflow(
       CONFIG,
       "we sell payroll software, analyze https://acme.example.com as a prospect",
       [],
@@ -82,7 +87,7 @@ describe("routeMessage", () => {
       { role: "user" as const, content: "we sell payroll software" },
       { role: "assistant" as const, content: "Got it!" },
     ];
-    const result = await routeMessage(
+    const result = await routeMessageForWorkflow(
       CONFIG,
       "analyze https://acme.example.com as a prospect",
       history,
@@ -100,7 +105,7 @@ describe("routeMessage", () => {
       sellingContext: null,
       candidates: null,
     });
-    const result = await routeMessage(
+    const result = await routeMessageForWorkflow(
       CONFIG,
       "analyze https://acme.example.com as a prospect",
       [],
@@ -116,7 +121,7 @@ describe("routeMessage", () => {
       sellingContext: null,
       candidates: null,
     });
-    const result = await routeMessage(
+    const result = await routeMessageForWorkflow(
       CONFIG,
       "draft an outreach sequence for Acme Analytics",
       [],
@@ -148,7 +153,7 @@ describe("routeMessage", () => {
     );
     vi.stubGlobal("fetch", spy);
     const history = [{ role: "user" as const, content: "we sell payroll software" }];
-    await routeMessage(CONFIG, "hello", history);
+    await routeMessageForWorkflow(CONFIG, "hello", history);
     const [, init] = spy.mock.calls[0] as unknown as [string, RequestInit];
     const body = JSON.parse(String(init.body)) as {
       messages: { role: string; content: string }[];
@@ -166,7 +171,7 @@ describe("routeMessage", () => {
       sellingContext: "payroll software for mid-market companies",
       candidates: null,
     });
-    const result = await routeMessage(
+    const result = await routeMessageForWorkflow(
       CONFIG,
       "we sell payroll software for mid-market companies, who should we target?",
       [],
@@ -200,7 +205,7 @@ describe("routeMessage", () => {
     );
     vi.stubGlobal("fetch", spy);
 
-    const result = await routeMessage(CONFIG, "我想去卖羊毛毯，如何选择", []);
+    const result = await routeMessageForWorkflow(CONFIG, "我想去卖羊毛毯，如何选择", []);
 
     expect(result.skill).toBe("match");
     expect(result.sellingContext).toBe("羊毛毯");
@@ -227,7 +232,7 @@ describe("routeMessage", () => {
       language: "Chinese",
       runtimeLabels: {},
     });
-    const result = await routeMessage(CONFIG, "羊毛毯", [
+    const result = await routeMessageForWorkflow(CONFIG, "羊毛毯", [
       { role: "user", content: "我想去卖羊毛毯，如何选择" },
       { role: "assistant", content: "请告诉我你销售什么。" },
     ]);
@@ -247,7 +252,7 @@ describe("routeMessage", () => {
       language: "Chinese",
       runtimeLabels: {},
     });
-    const result = await routeMessage(CONFIG, "哪里可以买到羊毛毯？", []);
+    const result = await routeMessageForWorkflow(CONFIG, "哪里可以买到羊毛毯？", []);
     expect(result.skill).toBe("match");
     expect(result.matchDirection).toBe("buy");
     expect(result.sellingContext).toBe("羊毛毯");
@@ -266,7 +271,7 @@ describe("routeMessage", () => {
       language: "Chinese",
       runtimeLabels: {},
     });
-    const result = await routeMessage(CONFIG, "多伦多哪里可以买到羊毛毯？", []);
+    const result = await routeMessageForWorkflow(CONFIG, "多伦多哪里可以买到羊毛毯？", []);
     expect(result.matchLocation).toBe("多伦多");
     expect(result.matchDirection).toBe("buy");
   });
@@ -283,7 +288,7 @@ describe("routeMessage", () => {
       language: "French",
       runtimeLabels: {},
     });
-    const result = await routeMessage(
+    const result = await routeMessageForWorkflow(
       CONFIG,
       "Où vendre un logiciel de paie au Québec ?",
       [],
@@ -304,7 +309,7 @@ describe("routeMessage", () => {
       language: "Arabic",
       runtimeLabels: {},
     });
-    const result = await routeMessage(
+    const result = await routeMessageForWorkflow(
       CONFIG,
       "أين يمكنني شراء بطانيات صوفية في فرنسا؟",
       [],
@@ -338,7 +343,7 @@ describe("routeMessage", () => {
         ),
     );
     vi.stubGlobal("fetch", spy);
-    const result = await routeMessage(CONFIG, "What about Montreal?", [
+    const result = await routeMessageForWorkflow(CONFIG, "What about Montreal?", [
       { role: "user", content: "Where can I buy wool blankets in Toronto?" },
       { role: "assistant", content: "Here are places in Toronto." },
     ]);
@@ -382,7 +387,7 @@ describe("routeMessage", () => {
         ),
     );
     vi.stubGlobal("fetch", spy);
-    const result = await routeMessage(CONFIG, "Où puis-je les acheter ?", [
+    const result = await routeMessageForWorkflow(CONFIG, "Où puis-je les acheter ?", [
       { role: "user", content: "Je cherche des couvertures en laine." },
       { role: "assistant", content: "Quel type de couverture préférez-vous ?" },
     ]);
@@ -414,7 +419,7 @@ describe("routeMessage", () => {
         matchComplete: "اكتملت المطابقة",
       },
     });
-    const result = await routeMessage(
+    const result = await routeMessageForWorkflow(
       CONFIG,
       "ما الشركات التي يجب أن نستهدفها؟",
       [],
@@ -433,7 +438,7 @@ describe("routeMessage", () => {
       sellingContext: "payroll software",
       candidates: ["Acme Corp", "https://globex.example.com"],
     });
-    const result = await routeMessage(
+    const result = await routeMessageForWorkflow(
       CONFIG,
       "we sell payroll software, rank Acme Corp and https://globex.example.com for fit",
       [],
@@ -444,42 +449,105 @@ describe("routeMessage", () => {
       "https://globex.example.com",
     ]);
   });
+});
 
-  it("resolves an entity to a URL via an LLM guess when none is given", async () => {
-    stubSequentialResponses([
-      JSON.stringify({
-        skill: "prospect",
-        url: null,
-        entity: "Acme Analytics",
-        sellingContext: null,
-        candidates: null,
-      }),
-      "https://acme.example.com",
-    ]);
-    const result = await routeMessage(
-      CONFIG,
-      "analyze Acme Analytics as a prospect",
-      [],
+describe("resolveCompanyUrl", () => {
+  it("resolves an entity to a URL via an LLM guess", async () => {
+    stubSequentialResponses(["https://acme.example.com"]);
+    expect(await resolveCompanyUrl(CONFIG, "Acme Analytics")).toBe(
+      "https://acme.example.com/",
     );
-    expect(result.url).toBe("https://acme.example.com/");
   });
 
-  it("leaves url null when the LLM can't guess it", async () => {
-    stubSequentialResponses([
-      JSON.stringify({
-        skill: "prospect",
-        url: null,
-        entity: "Some Obscure Startup",
-        sellingContext: null,
-        candidates: null,
-      }),
-      "unknown",
-    ]);
-    const result = await routeMessage(
-      CONFIG,
-      "analyze Some Obscure Startup as a prospect",
-      [],
+  it("returns null when the LLM can't guess it", async () => {
+    stubSequentialResponses(["unknown"]);
+    expect(await resolveCompanyUrl(CONFIG, "Some Obscure Startup")).toBeNull();
+  });
+});
+
+describe("isLikelyCompanyUrl", () => {
+  it("accepts a normal company domain", () => {
+    expect(isLikelyCompanyUrl("https://acme.example.com/about")).toBe(true);
+  });
+
+  it("rejects a single-label host that cannot be a public site", () => {
+    expect(isLikelyCompanyUrl("https://intranet/")).toBe(false);
+  });
+
+  it.each([
+    "https://www.linkedin.com/company/acme",
+    "https://en.wikipedia.org/wiki/Acme",
+    "https://www.facebook.com/acme",
+  ])("rejects the non-company host %s", (url) => {
+    expect(isLikelyCompanyUrl(url)).toBe(false);
+  });
+
+  it("rejects a string that is not a URL at all", () => {
+    expect(isLikelyCompanyUrl("not a url")).toBe(false);
+  });
+});
+
+describe("routeMessageForWorkflow failures", () => {
+  it("lets a provider failure through instead of reporting bad output", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("upstream down", { status: 503 })),
     );
-    expect(result.url).toBeNull();
+    await expect(
+      routeMessageForWorkflow(CONFIG, "analyze Acme", []),
+    ).rejects.toBeInstanceOf(LlmError);
+  });
+});
+
+describe("resolveCompanyUrl", () => {
+  /** Stub the completions endpoint with one plain-text reply. */
+  function stubText(text: string): void {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ choices: [{ message: { content: text } }] }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+  }
+
+  it("returns a company URL the model resolved", async () => {
+    stubText("https://acme.example.com");
+    await expect(resolveCompanyUrl(CONFIG, "Acme Corp")).resolves.toBe(
+      "https://acme.example.com/",
+    );
+  });
+
+  it("strips quoting the model wrapped the URL in", async () => {
+    stubText('"https://acme.example.com"');
+    await expect(resolveCompanyUrl(CONFIG, "Acme Corp")).resolves.toBe(
+      "https://acme.example.com/",
+    );
+  });
+
+  it("returns nothing when the model admits it does not know", async () => {
+    stubText("unknown");
+    await expect(resolveCompanyUrl(CONFIG, "Nowhere Ltd")).resolves.toBeNull();
+  });
+
+  it("returns nothing for an empty answer", async () => {
+    stubText("   ");
+    await expect(resolveCompanyUrl(CONFIG, "Nowhere Ltd")).resolves.toBeNull();
+  });
+
+  it("refuses a social profile offered in place of a company site", async () => {
+    stubText("https://www.linkedin.com/company/acme");
+    await expect(resolveCompanyUrl(CONFIG, "Acme Corp")).resolves.toBeNull();
+  });
+
+  it("returns nothing when the provider fails outright", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("nope", { status: 500 })),
+    );
+    await expect(resolveCompanyUrl(CONFIG, "Acme Corp")).resolves.toBeNull();
   });
 });

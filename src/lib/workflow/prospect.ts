@@ -1,5 +1,4 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
-import { resolveCompanyUrl } from "@/lib/agent/router";
 import {
   analyzeProspectBriefing,
   discoverProspect,
@@ -11,16 +10,20 @@ import {
   type ProspectScoreState,
 } from "@/lib/agent/orchestrator";
 import type { SynthesisResult } from "@/lib/agent/schemas";
-import type { ReportState } from "@/lib/chat-types";
 import type { WorkflowRuntimeContext } from "@/lib/workflow/context";
+import { resolveRoutedTarget } from "@/lib/workflow/target";
 import {
   WORKFLOW_NODE,
   WORKFLOW_PHASE,
   WORKFLOW_STATUS,
 } from "@/lib/workflow/constants";
 import { buildScoreLabels } from "@/lib/workflow/events";
+import { buildReport } from "@/lib/workflow/report";
 import { runPlainChatNode } from "@/lib/workflow/standalone";
-import { WorkflowStateAnnotation } from "@/lib/workflow/state";
+import {
+  WorkflowStateAnnotation,
+  requireStageValue,
+} from "@/lib/workflow/state";
 
 /** Stage-level state retained only while the prospect subgraph is active. */
 const ProspectStateAnnotation = Annotation.Root({
@@ -63,11 +66,7 @@ async function resolveProspectTarget(
   const routing = state.routing;
   if (!routing || routing.skill !== "prospect") return { target: null };
   context.signal.throwIfAborted();
-  const target =
-    routing.url ??
-    (routing.entity
-      ? await resolveCompanyUrl(context.config, routing.entity, context.signal)
-      : null);
+  const target = await resolveRoutedTarget(routing, context);
   if (target) {
     context.emit({
       type: "phase",
@@ -101,7 +100,7 @@ async function discoverProspectNode(
 ): Promise<ProspectStateUpdate> {
   context.signal.throwIfAborted();
   const briefing = await discoverProspect(
-    state.target as string,
+    requireStageValue(state.target, "discover"),
     context.emit,
     state.runtimeLabels,
     context.signal,
@@ -122,7 +121,7 @@ async function analyzeProspectNode(
   context.signal.throwIfAborted();
   const analysisResults = await analyzeProspectBriefing(
     context.config,
-    state.briefing as DiscoveryBriefing,
+    requireStageValue(state.briefing, "briefing"),
     context.emit,
     state.routing?.sellingContext ?? null,
     state.message,
@@ -141,8 +140,8 @@ async function analyzeProspectNode(
 function scoreProspectNode(state: ProspectState): ProspectStateUpdate {
   return {
     scoreState: scoreProspectBriefing(
-      state.briefing as DiscoveryBriefing,
-      state.analysisResults as ProspectAnalysisResults,
+      requireStageValue(state.briefing, "briefing"),
+      requireStageValue(state.analysisResults, "analysis"),
     ),
   };
 }
@@ -159,9 +158,9 @@ async function synthesizeProspectNode(
 ): Promise<ProspectStateUpdate> {
   const synthesis = await synthesizeProspectBriefing(
     context.config,
-    state.briefing as DiscoveryBriefing,
-    state.analysisResults as ProspectAnalysisResults,
-    state.scoreState as ProspectScoreState,
+    requireStageValue(state.briefing, "briefing"),
+    requireStageValue(state.analysisResults, "analysis"),
+    requireStageValue(state.scoreState, "scoring"),
     context.emit,
     state.routing?.sellingContext ?? null,
     state.message,
@@ -183,14 +182,14 @@ function formatProspectNode(
   context: WorkflowRuntimeContext,
 ): ProspectStateUpdate {
   const outcome = formatProspectOutcome(
-    state.briefing as DiscoveryBriefing,
-    state.analysisResults as ProspectAnalysisResults,
-    state.scoreState as ProspectScoreState,
+    requireStageValue(state.briefing, "briefing"),
+    requireStageValue(state.analysisResults, "analysis"),
+    requireStageValue(state.scoreState, "scoring"),
     state.synthesis,
     state.routing?.sellingContext ?? null,
     state.runtimeLabels,
   );
-  const report: ReportState = {
+  const report = buildReport({
     kind: "prospect",
     companyName: outcome.companyName,
     url: outcome.url,
@@ -202,15 +201,13 @@ function formatProspectNode(
       score: row.score,
       weight: row.weight,
     })),
-    matches: null,
-    matchLabels: null,
     scoreLabels: buildScoreLabels(
       state.runtimeLabels,
       "prospect",
       outcome.confidenceLabel,
     ),
     markdown: outcome.markdown,
-  };
+  });
   context.emit({ type: "report", report });
   return { report, status: WORKFLOW_STATUS.completed };
 }

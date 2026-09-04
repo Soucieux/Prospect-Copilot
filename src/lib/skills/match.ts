@@ -3,6 +3,7 @@
  * transaction - buyers in sell mode or sellers in buy mode.
  */
 
+import { WORKFLOW_PHASE } from "@/lib/workflow/constants";
 import { z } from "zod";
 import { fetchWithVariants, normalizeUrl } from "@/lib/extract/fetch-page";
 import { analyzeProspect } from "@/lib/extract/analyze-prospect";
@@ -16,7 +17,6 @@ import {
   UNTRUSTED_WEB_CONTENT_RULES,
 } from "@/lib/constants";
 import {
-  RUNTIME_LABEL_DEFAULTS,
   formatRuntimeLabel,
   mergeLabelSet,
   responseLanguageContext,
@@ -24,6 +24,7 @@ import {
   type RuntimeLabels,
 } from "@/lib/localization";
 import { runGraphWorkerPool } from "@/lib/graph-worker-pool";
+import { emitAgentProgress } from "@/lib/agent/progress";
 import {
   STRUCTURED_LLM_RETRY_OPTIONS,
   retryOperation,
@@ -54,7 +55,7 @@ export const MATCH_REPORT_LABELS: LabelSet = {
 };
 
 /** English report/card copy for buy-direction matches; keys mirror sell mode. */
-export const BUY_MATCH_REPORT_LABELS: LabelSet = {
+const BUY_MATCH_REPORT_LABELS: LabelSet = {
   titleTemplate: "Places to buy: {product}",
   titleFallback: "Places to buy",
   titleWithLocationTemplate: "Places to buy: {product} in {location}",
@@ -139,7 +140,6 @@ export interface MatchSkillResult {
 const MAX_CANDIDATES_TO_SCORE = 12;
 const MAX_CANDIDATE_CONCURRENCY = 4;
 const HOMEPAGE_CHAR_BUDGET = 4_000;
-const MATCH_RESULT_LIMIT = 8;
 
 const QUICK_SCORE_SCHEMA = z.object({
   companyName: z.string().trim().min(1),
@@ -218,97 +218,6 @@ const CANDIDATE_SUGGESTIONS_SCHEMA = z.object({
     .max(MAX_CANDIDATES_TO_SCORE),
   labels: z.record(z.string(), z.string()).optional(),
 });
-
-/**
- * Sort scored candidates by fit and keep only the top N.
- * @param candidates every candidate that was successfully scored
- * @param limit maximum number of candidates to keep
- * @returns candidates sorted descending by score, truncated to `limit`
- */
-export function rankCandidates(
-  candidates: CandidateScore[],
-  limit: number,
-): CandidateScore[] {
-  return [...candidates].sort((a, b) => b.score - a.score).slice(0, limit);
-}
-
-/**
- * Render the final match report: a ranked list of candidates with a link
- * to run a full audit on any of them.
- * @param sellingContext product context for the buy or sell match
- * @param ranked the top candidates, already sorted descending by score
- * @param totalConsidered how many candidates were scored before truncation
- * @param labels localized report labels
- * @param matchLocation explicit geographic requirement, when supplied
- * @returns the report markdown and a short title for the report card
- */
-export function renderMatchReport(
-  sellingContext: string | null,
-  ranked: CandidateScore[],
-  totalConsidered: number,
-  labels: LabelSet = MATCH_REPORT_LABELS,
-  matchLocation: string | null = null,
-): { markdown: string; title: string; matches: CandidateScore[] } {
-  const title = matchLocation
-    ? sellingContext
-      ? formatRuntimeLabel(labels.titleWithLocationTemplate, {
-          product: sellingContext,
-          location: matchLocation,
-        })
-      : formatRuntimeLabel(labels.locationTitleTemplate, {
-          location: matchLocation,
-        })
-    : sellingContext
-      ? labels.titleTemplate.replace("{product}", sellingContext)
-      : labels.titleFallback;
-
-  if (ranked.length === 0) {
-    return {
-      title,
-      markdown: `# ${title}\n\n${labels.noneScored}`,
-      matches: [],
-    };
-  }
-
-  const rankedTemplate =
-    totalConsidered === 1
-      ? labels.rankedTemplateSingular
-      : labels.rankedTemplatePlural;
-  const lines = [
-    `# ${title}`,
-    "",
-    rankedTemplate
-      .replace("{ranked}", String(ranked.length))
-      .replace("{total}", String(totalConsidered)),
-    "",
-  ];
-  ranked.forEach((candidate, index) => {
-    lines.push(`${index + 1}. **${candidate.companyName}** - ${candidate.score}/100`);
-    if (candidate.location || candidate.founded) {
-      const parts = [
-        candidate.location ? `${labels.locationLabel}: ${candidate.location}` : null,
-        candidate.founded ? `${labels.foundedLabel}: ${candidate.founded}` : null,
-      ].filter((part): part is string => part !== null);
-      lines.push(`   ${parts.join(" · ")}`);
-    }
-    lines.push(
-      `   ${candidate.description}`,
-      `   ${labels.fitLabel}: ${candidate.fitReason}`,
-      `   ${candidate.url}`,
-      "",
-    );
-  });
-  if (totalConsidered > ranked.length) {
-    const omittedCount = totalConsidered - ranked.length;
-    const omittedTemplate =
-      omittedCount === 1
-        ? labels.omittedTemplateSingular
-        : labels.omittedTemplatePlural;
-    lines.push(`_${omittedTemplate.replace("{count}", String(omittedCount))}_`, "");
-  }
-  lines.push(`> ${labels.auditPrompt}`);
-  return { title, markdown: lines.join("\n"), matches: ranked };
-}
 
 /**
  * Ask the LLM to suggest candidate companies for a described product when
@@ -463,7 +372,7 @@ export async function resolveMatchCandidatesStage(
 ): Promise<CandidatePool> {
   emit({
     type: "phase",
-    phase: "discovery",
+    phase: WORKFLOW_PHASE.discovery,
     detail: candidates?.length
       ? candidates.length === 1
         ? runtimeLabels.resolvingCandidatesSingular
@@ -487,7 +396,7 @@ export async function resolveMatchCandidatesStage(
   if (candidatePool.candidates.length === 0) {
     emit({
       type: "phase",
-      phase: "done",
+      phase: WORKFLOW_PHASE.done,
       detail:
         matchDirection === "buy"
           ? runtimeLabels.noBuyCandidates
@@ -531,7 +440,7 @@ export async function scoreMatchCandidatesStage(
   }
   emit({
     type: "phase",
-    phase: "analysis",
+    phase: WORKFLOW_PHASE.analysis,
     detail:
       resolvedCandidates.length === 1
         ? runtimeLabels.scoringCandidateSingular
@@ -540,14 +449,7 @@ export async function scoreMatchCandidatesStage(
           }),
   });
   resolvedCandidates.forEach(({ url }) =>
-    emit({
-      type: "agent",
-      agent: url,
-      detail: formatRuntimeLabel(runtimeLabels.agentRunningTemplate, {
-        agent: url,
-      }),
-      status: "running",
-    }),
+    emitAgentProgress(emit, runtimeLabels, url, "running"),
   );
   const defaultLabels = reportLabelsFor(matchDirection);
   const translateEveryScore = Boolean(namedCandidates?.length);
@@ -584,97 +486,12 @@ export async function scoreMatchCandidatesStage(
       const { labels: translated, ...score } = result;
       if (translated) labels = translated;
       scored.push(score);
-      emit({
-        type: "agent",
-        agent: url,
-        detail: formatRuntimeLabel(runtimeLabels.agentDoneTemplate, {
-          agent: url,
-        }),
-        status: "done",
-        score: score.score,
-      });
+      emitAgentProgress(emit, runtimeLabels, url, "done", score.score);
       return;
     }
-    emit({
-      type: "agent",
-      agent: url,
-      detail: formatRuntimeLabel(runtimeLabels.agentFailedTemplate, {
-        agent: url,
-      }),
-      status: "failed",
-    });
+    emitAgentProgress(emit, runtimeLabels, url, "failed");
   });
   return { scored, labels };
-}
-
-/**
- * Rank and format completed match state without repeating earlier stages.
- * @param candidatePool resolved candidate stage output
- * @param scoreBatch scoring stage output
- * @param sellingContext product context for report titles
- * @param namedCandidates user-named candidates, when supplied
- * @param emit progress callback
- * @param runtimeLabels localized progress and card labels
- * @param matchDirection whether candidates buy or sell the product
- * @param matchLocation explicit geographic constraint
- * @returns final match report and card metadata
- */
-export function formatMatchSkillResult(
-  candidatePool: CandidatePool,
-  scoreBatch: CandidateScoreBatch,
-  sellingContext: string | null,
-  namedCandidates: string[] | null,
-  emit: EmitCallback,
-  runtimeLabels: RuntimeLabels,
-  matchDirection: MatchDirection,
-  matchLocation: string | null,
-): MatchSkillResult {
-  let labels = scoreBatch.labels;
-  const ranked = rankCandidates(scoreBatch.scored, MATCH_RESULT_LIMIT);
-  if (
-    ranked.length === 0 &&
-    namedCandidates?.length
-  ) {
-    const reportTitle = formatRuntimeLabel(runtimeLabels.reportTemplate, {
-      skill: runtimeLabels.skillMatch,
-    });
-    labels = {
-      ...labels,
-      titleTemplate: `${reportTitle}: {product}`,
-      titleFallback: reportTitle,
-      noneScored:
-        matchDirection === "buy"
-          ? runtimeLabels.noBuyCandidates
-          : runtimeLabels.noCandidates,
-    };
-  }
-  if (candidatePool.candidates.length > 0) {
-    emit({ type: "phase", phase: "done", detail: runtimeLabels.matchComplete });
-  }
-  const cardLabels =
-    matchDirection === "buy"
-      ? {
-          founded: labels.foundedLabel,
-          fit: labels.fitLabel,
-          auditHint: labels.auditHint,
-          auditRequestTemplate: labels.auditRequestTemplate,
-        }
-      : {
-          founded: runtimeLabels.foundedLabel,
-          fit: runtimeLabels.fitLabel,
-          auditHint: runtimeLabels.auditHint,
-          auditRequestTemplate: runtimeLabels.auditRequestTemplate,
-        };
-  return {
-    ...renderMatchReport(
-      sellingContext,
-      ranked,
-      scoreBatch.scored.length,
-      labels,
-      matchLocation,
-    ),
-    cardLabels,
-  };
 }
 
 /**
@@ -682,6 +499,7 @@ export function formatMatchSkillResult(
  * looks like a company site, otherwise resolved by name via the LLM.
  * @param config LLM credentials
  * @param candidate a name or URL, from the user or a suggestion
+ * @param signal cancels the provider request
  * @returns the resolved URL, or null when it can't be resolved
  */
 async function resolveOneCandidate(
@@ -712,7 +530,7 @@ function looksLikeWebAddress(raw: string): boolean {
   const value = raw.trim();
   if (/^https?:\/\//i.test(value)) return true;
   if (!value || /\s/.test(value)) return false;
-  const authority = value.split(/[/?#]/, 1)[0] ?? "";
+  const authority = value.split(/[/?#]/, 1)[0];
   return /[^.。．｡][.。．｡][^.。．｡]/u.test(authority);
 }
 
@@ -822,69 +640,4 @@ Homepage text: ${htmlToText(page.html).slice(0, HOMEPAGE_CHAR_BUDGET)}`;
     signal?.throwIfAborted();
     return null;
   }
-}
-
-/**
- * Run the match skill end to end: resolve candidates, quick-score each in
- * parallel, rank, and render the final report.
- * @param config LLM credentials
- * @param sellingContext product context, or null for a neutral judgment
- * @param candidates company names/URLs named directly in the message, or
- *   null to have the LLM suggest candidates
- * @param emit progress callback (phase/agent events)
- * @param requesterMessage the requester's own chat message, for language detection only
- * @param responseLanguage language recognized from the latest user message
- * @param runtimeLabels translated progress and scorecard labels
- * @param matchDirection whether candidates are buyers or sellers
- * @param matchLocation explicit geographic requirement, when supplied
- * @param signal cancels discovery and scoring work
- * @returns the report markdown, title, and localized card labels
- */
-export async function runMatchSkill(
-  config: LlmConfig,
-  sellingContext: string | null,
-  candidates: string[] | null,
-  emit: EmitCallback,
-  requesterMessage: string = "",
-  responseLanguage: string = "English",
-  runtimeLabels: RuntimeLabels = RUNTIME_LABEL_DEFAULTS,
-  matchDirection: MatchDirection = "sell",
-  matchLocation: string | null = null,
-  signal?: AbortSignal,
-): Promise<MatchSkillResult> {
-  const candidatePool = await resolveMatchCandidatesStage(
-    config,
-    sellingContext,
-    candidates,
-    emit,
-    requesterMessage,
-    responseLanguage,
-    runtimeLabels,
-    matchDirection,
-    matchLocation,
-    signal,
-  );
-  const scoreBatch = await scoreMatchCandidatesStage(
-    config,
-    candidatePool,
-    sellingContext,
-    candidates,
-    emit,
-    requesterMessage,
-    responseLanguage,
-    runtimeLabels,
-    matchDirection,
-    matchLocation,
-    signal,
-  );
-  return formatMatchSkillResult(
-    candidatePool,
-    scoreBatch,
-    sellingContext,
-    candidates,
-    emit,
-    runtimeLabels,
-    matchDirection,
-    matchLocation,
-  );
 }

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  assembleReport,
   scoreProspectBriefing,
-  PROSPECT_REPORT_LABELS,
   SUBPAGE_PATTERNS,
 } from "./orchestrator";
+import {
+  PROSPECT_REPORT_LABELS,
+  assembleReport,
+} from "./prospect-report";
 import { SUBAGENTS } from "@/lib/skills/subagents";
 import { scoreMeddic } from "@/lib/scoring/lead-scorer";
 import { RUNTIME_LABEL_DEFAULTS } from "@/lib/localization";
@@ -358,5 +360,89 @@ describe("assembleReport", () => {
     expect(markdown).toContain("80/100");
     expect(markdown).toContain("25%");
     expect(markdown).toContain("Found React");
+  });
+});
+
+describe("assembleReport fallbacks", () => {
+  it("titles the report by URL when the site never names the company", () => {
+    const markdown = assembleReport(
+      { ...BRIEFING, companyName: null },
+      RESULTS,
+      COMPOSITE,
+      BASE_SYNTHESIS,
+      BANT,
+      null,
+    );
+    expect(markdown).toContain("https://acme.example.com");
+  });
+
+  it("omits the decision-maker map when discovery found no contacts", () => {
+    const markdown = assembleReport(
+      { ...BRIEFING, contacts: [] },
+      RESULTS,
+      COMPOSITE,
+      BASE_SYNTHESIS,
+      BANT,
+      null,
+    );
+    expect(markdown).not.toContain(PROSPECT_REPORT_LABELS.decisionMakerMap);
+  });
+
+  it("reports a failed subagent instead of dropping its section", () => {
+    const withFailure: PromiseSettledResult<SubagentResult>[] = RESULTS.map(
+      (result, index) =>
+        index === 0
+          ? { status: "rejected" as const, reason: new Error("provider down") }
+          : result,
+    );
+    const markdown = assembleReport(
+      BRIEFING,
+      withFailure,
+      COMPOSITE,
+      BASE_SYNTHESIS,
+      BANT,
+      null,
+    );
+    expect(markdown).toContain("## Company Research");
+    expect(markdown).not.toContain("provider down");
+  });
+
+  it("names a degraded category it cannot translate by its own key", () => {
+    const markdown = assembleReport(
+      BRIEFING,
+      RESULTS,
+      { ...COMPOSITE, degradedCategories: ["notARealCategory"] },
+      BASE_SYNTHESIS,
+      BANT,
+      null,
+    );
+    expect(markdown).toContain("notARealCategory");
+  });
+
+  it("translates a degraded category it does recognize", () => {
+    const markdown = assembleReport(
+      BRIEFING,
+      RESULTS,
+      { ...COMPOSITE, degradedCategories: ["competitivePosition"] },
+      BASE_SYNTHESIS,
+      BANT,
+      null,
+    );
+    expect(markdown).toContain(RUNTIME_LABEL_DEFAULTS.categoryCompetitivePosition);
+  });
+
+  it("marks a fully assessed MEDDIC element with a dash rather than a blank", () => {
+    const { meddic } = scoreProspectBriefing(BRIEFING, RESULTS);
+    const markdown = assembleReport(
+      BRIEFING,
+      RESULTS,
+      COMPOSITE,
+      BASE_SYNTHESIS,
+      BANT,
+      null,
+      RUNTIME_LABEL_DEFAULTS,
+      meddic,
+    );
+    expect(markdown).toMatch(/\| *- *\|/);
   });
 });

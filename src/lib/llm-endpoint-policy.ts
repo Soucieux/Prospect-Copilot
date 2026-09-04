@@ -1,7 +1,7 @@
 import { DEFAULT_LLM_BASE_URL } from "@/lib/constants";
 
 /** Environment variable containing comma-separated, server-approved LLM URLs. */
-export const LLM_ALLOWED_BASE_URLS_ENV = "LLM_ALLOWED_BASE_URLS";
+const LLM_ALLOWED_BASE_URLS_ENV = "LLM_ALLOWED_BASE_URLS";
 
 /** Configuration error raised before an unapproved provider can be contacted. */
 export class LlmEndpointPolicyError extends Error {
@@ -18,12 +18,15 @@ export class LlmEndpointPolicyError extends Error {
 /**
  * Parse and canonicalize an OpenAI-compatible provider base URL.
  * Credentials, query strings, and fragments are not valid endpoint config.
+ * @param raw the configured or browser-supplied base URL
+ * @returns the URL without a trailing slash
+ * @throws LlmEndpointPolicyError when the URL is malformed or carries credentials
  */
 function normalizeBaseUrl(raw: string): string {
   let url: URL;
   try {
     url = new URL(raw);
-  } catch (caught) {
+  } catch {
     throw new LlmEndpointPolicyError("The configured LLM base URL is invalid");
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") {
@@ -42,6 +45,10 @@ function normalizeBaseUrl(raw: string): string {
  * Validate a browser-supplied provider against the server-owned allowlist.
  * The default DeepSeek endpoint is always enabled. Administrators can opt in
  * additional endpoints, including local HTTP providers, through the env var.
+ * @param requested the base URL asked for by the browser, when supplied
+ * @param configuredAllowlist comma-separated approved URLs, read from the env
+ * @returns the canonical approved base URL
+ * @throws LlmEndpointPolicyError when the endpoint is not approved
  */
 export function resolveAllowedLlmBaseUrl(
   requested: string | null | undefined,

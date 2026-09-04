@@ -1,5 +1,4 @@
 import { END, START, StateGraph } from "@langchain/langgraph";
-import { resolveCompanyUrl } from "@/lib/agent/router";
 import { streamChatCompletion } from "@/lib/llm";
 import {
   runStandaloneSkill,
@@ -10,6 +9,7 @@ import {
   localizedSkillName,
 } from "@/lib/localization";
 import type { WorkflowRuntimeContext } from "@/lib/workflow/context";
+import { resolveRoutedTarget } from "@/lib/workflow/target";
 import {
   PLAIN_CHAT_SYSTEM_PROMPT,
   WORKFLOW_NODE,
@@ -17,6 +17,7 @@ import {
   WORKFLOW_STATUS,
 } from "@/lib/workflow/constants";
 import { buildScoreLabels } from "@/lib/workflow/events";
+import { buildReport } from "@/lib/workflow/report";
 import {
   WorkflowStateAnnotation,
   type WorkflowState,
@@ -36,7 +37,7 @@ const STANDALONE_SKILL_NAMES: StandaloneSkillName[] = [
  * @returns true for research, qualification, contacts, or outreach
  */
 function isStandaloneSkill(skill: string): skill is StandaloneSkillName {
-  return STANDALONE_SKILL_NAMES.includes(skill as StandaloneSkillName);
+  return STANDALONE_SKILL_NAMES.some((name) => name === skill);
 }
 
 /**
@@ -87,11 +88,7 @@ async function runStandaloneNode(
       skill: localizedSkillName(state.runtimeLabels, routing.skill),
     }),
   });
-  const url =
-    routing.url ??
-    (routing.entity
-      ? await resolveCompanyUrl(context.config, routing.entity, context.signal)
-      : null);
+  const url = await resolveRoutedTarget(routing, context);
   const { markdown, title } = await runStandaloneSkill(
     context.config,
     routing.skill,
@@ -104,19 +101,13 @@ async function runStandaloneNode(
     state.runtimeLabels,
     context.signal,
   );
-  const report = {
+  const report = buildReport({
     kind: routing.skill,
     companyName: title,
     url,
-    score: null,
-    grade: null,
-    confidence: null,
-    categories: null,
-    matches: null,
-    matchLabels: null,
     scoreLabels: buildScoreLabels(state.runtimeLabels, routing.skill),
     markdown,
-  };
+  });
   context.emit({ type: "report", report });
   return { report, status: WORKFLOW_STATUS.completed };
 }

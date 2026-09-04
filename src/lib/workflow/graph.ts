@@ -74,8 +74,9 @@ async function understandRequest(
  * @param _state state supplied to the failed routing node
  * @param nodeError wrapper containing the original router failure
  * @returns safe plain-chat routing update
+ * @internal exported for deterministic routing tests
  */
-function recoverRouterOutput(
+export function recoverRouterOutput(
   _state: WorkflowState,
   nodeError: NodeError,
 ): WorkflowStateUpdate {
@@ -98,8 +99,9 @@ function recoverRouterOutput(
  * Select one deterministic workflow branch from validated router state.
  * @param state current graph state
  * @returns the next node identifier
+ * @internal exported for deterministic routing tests
  */
-function selectWorkflow(state: WorkflowState): string {
+export function selectWorkflow(state: WorkflowState): string {
   const skill = state.routing?.skill;
   if (skill === "match") return WORKFLOW_NODE.matchSubgraph;
   if (skill === "prospect" && (state.routing?.url || state.routing?.entity)) {

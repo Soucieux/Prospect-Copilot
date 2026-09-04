@@ -5,6 +5,8 @@
  */
 
 import * as cheerio from "cheerio";
+import { absoluteUrl } from "@/lib/extract/absolute-url";
+import { jsonLdNodes } from "@/lib/extract/json-ld";
 
 export type Seniority = "C-Suite" | "VP" | "Director" | "Manager" | "IC";
 export type BuyingRole =
@@ -61,6 +63,18 @@ const C_SUITE_PATTERN = /\b(CEO|CTO|CFO|COO|CIO|CRO|CMO|CPO|CISO|CHRO|Chief|Foun
 const VP_PATTERN = /\b(VP\b|Vice President|Head of)\b/i;
 const DIRECTOR_PATTERN = /\bDirector\b/i;
 const MANAGER_PATTERN = /\bManager\b/i;
+
+/** Titles that hold the budget and can approve a purchase outright. */
+const ECONOMIC_BUYER_PATTERN =
+  /\b(CEO|CFO|COO|President|Owner|Founder|Chief\s+(Executive|Financial|Operating)\s+Officer)\b/i;
+
+/** Titles that judge whether a solution is technically workable. */
+const TECHNICAL_EVALUATOR_PATTERN =
+  /\b(CTO|CIO|VP\s+(of\s+)?(Engineering|Technology)|Architect|Chief\s+(Technology|Information)\s+Officer)\b/i;
+
+/** Revenue-side titles that will carry a deal internally. */
+const CHAMPION_PATTERN =
+  /\b(CRO|CMO|VP\s+(of\s+)?(Sales|Marketing|Revenue)|Chief\s+(Revenue|Marketing)\s+Officer|Head of (Sales|Marketing|Growth))\b/i;
 
 /**
  * Extract contact candidates from a team/leadership page. A person is kept
@@ -150,34 +164,31 @@ function extractJsonLdPeople(
   $: cheerio.CheerioAPI,
 ): ContactCandidate[] {
   const people: ContactCandidate[] = [];
-  for (const script of $('script[type="application/ld+json"]').toArray()) {
-    try {
-      const data: unknown = JSON.parse($(script).text() || "{}");
-      const nodes = Array.isArray(data) ? data : [data];
-      for (const node of nodes) {
-        const typed = node as { "@type"?: unknown; name?: unknown; jobTitle?: unknown; sameAs?: unknown };
-        if (typed?.["@type"] !== "Person" || typeof typed.name !== "string") {
-          continue;
-        }
-        const title = typeof typed.jobTitle === "string" ? typed.jobTitle : null;
-        const sameAs = Array.isArray(typed.sameAs)
-          ? typed.sameAs.find(
-              (link): link is string =>
-                typeof link === "string" && LINKEDIN_PERSON_PATTERN.test(link),
-            )
-          : undefined;
-        people.push({
-          name: typed.name.trim(),
-          title,
-          seniority: classifySeniority(title),
-          buyingRole: classifyBuyingRole(title),
-          linkedin: sameAs ?? null,
-          source: "json-ld",
-        });
-      }
-    } catch {
-      // Malformed JSON-LD blocks are skipped.
+  for (const node of jsonLdNodes($)) {
+    const typed = node as {
+      "@type"?: unknown;
+      name?: unknown;
+      jobTitle?: unknown;
+      sameAs?: unknown;
+    };
+    if (typed?.["@type"] !== "Person" || typeof typed.name !== "string") {
+      continue;
     }
+    const title = typeof typed.jobTitle === "string" ? typed.jobTitle : null;
+    const sameAs = Array.isArray(typed.sameAs)
+      ? typed.sameAs.find(
+          (link): link is string =>
+            typeof link === "string" && LINKEDIN_PERSON_PATTERN.test(link),
+        )
+      : undefined;
+    people.push({
+      name: typed.name.trim(),
+      title,
+      seniority: classifySeniority(title),
+      buyingRole: classifyBuyingRole(title),
+      linkedin: sameAs ?? null,
+      source: "json-ld",
+    });
   }
   return people;
 }
@@ -307,15 +318,6 @@ function findLinkedin(
 }
 
 /**
- * Make a scraped href absolute the way the report expects.
- * @param href the raw href attribute
- * @returns an https URL
- */
-function absoluteUrl(href: string): string {
-  return href.startsWith("http") ? href : `https://${href}`;
-}
-
-/**
  * Check whether a string is plausibly a person's name rather than a job
  * title. Careers pages list titles in the same headings team pages use for
  * names, so a title-looking string is rejected outright.
@@ -350,23 +352,9 @@ export function classifySeniority(title: string | null): Seniority {
  */
 export function classifyBuyingRole(title: string | null): BuyingRole {
   if (title === null) return "Unknown";
-  if (
-    /\b(CEO|CFO|COO|President|Owner|Founder|Chief\s+(Executive|Financial|Operating)\s+Officer)\b/i.test(
-      title,
-    )
-  ) {
-    return "Economic Buyer";
-  }
-  if (
-    /\b(CTO|CIO|VP\s+(of\s+)?(Engineering|Technology)|Architect|Chief\s+(Technology|Information)\s+Officer)\b/i.test(
-      title,
-    )
-  ) {
-    return "Technical Evaluator";
-  }
-  if (/\b(CRO|CMO|VP\s+(of\s+)?(Sales|Marketing|Revenue)|Chief\s+(Revenue|Marketing)\s+Officer|Head of (Sales|Marketing|Growth))\b/i.test(title)) {
-    return "Champion";
-  }
+  if (ECONOMIC_BUYER_PATTERN.test(title)) return "Economic Buyer";
+  if (TECHNICAL_EVALUATOR_PATTERN.test(title)) return "Technical Evaluator";
+  if (CHAMPION_PATTERN.test(title)) return "Champion";
   return "End User";
 }
 

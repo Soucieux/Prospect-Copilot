@@ -97,18 +97,6 @@ export type ResolvedRouterResult = Omit<RouterResult, "runtimeLabels"> & {
   runtimeLabels: RuntimeLabels;
 };
 
-const NONE_RESULT: ResolvedRouterResult = {
-  skill: "none",
-  url: null,
-  entity: null,
-  sellingContext: null,
-  matchDirection: "sell",
-  matchLocation: null,
-  candidates: null,
-  language: "English",
-  runtimeLabels: RUNTIME_LABEL_DEFAULTS,
-};
-
 /** Raised when the router model returns text that does not satisfy its schema. */
 export class RouterOutputError extends Error {
   /** Create an invalid-router-output failure for graph retry classification. */
@@ -153,35 +141,6 @@ export async function routeMessageForWorkflow(
     if (caught instanceof LlmError) throw caught;
     throw new RouterOutputError();
   }
-}
-
-/**
- * Classify a user message into a skill invocation or plain chat.
- * @param config LLM credentials
- * @param message the user's chat message
- * @param history prior turns, scanned for the current product context
- * @param signal cancels routing and any company-name resolution
- * @returns routing decision; parse failures degrade to none
- * @throws LlmError propagated when the endpoint itself fails
- */
-export async function routeMessage(
-  config: LlmConfig,
-  message: string,
-  history: { role: "user" | "assistant"; content: string }[] = [],
-  signal?: AbortSignal,
-): Promise<ResolvedRouterResult> {
-  let routing: ResolvedRouterResult;
-  try {
-    routing = await routeMessageForWorkflow(config, message, history, signal);
-  } catch (caught) {
-    if (!(caught instanceof RouterOutputError)) throw caught;
-    return NONE_RESULT;
-  }
-  if (!routing.url && routing.entity) {
-    const resolved = await resolveCompanyUrl(config, routing.entity, signal);
-    if (resolved) return { ...routing, url: resolved };
-  }
-  return routing;
 }
 
 /** Hostnames that are never a company's own site (social/reference platforms). */

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import {
   LLM_API_KEY_HEADER,
@@ -8,7 +8,12 @@ import {
   MAX_CHAT_HISTORY_CONTENT_CHARS,
   MAX_CHAT_HISTORY_ITEMS,
 } from "@/lib/chat-history";
+import { resetRateLimit } from "@/lib/rate-limit";
 import { CHAT_REQUEST_SCHEMA, POST } from "./route";
+
+beforeEach(() => {
+  resetRateLimit();
+});
 
 describe("chat API boundaries", () => {
   it("rejects an unapproved browser-selected LLM endpoint", async () => {

@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import {
-  DEFAULT_LLM_BASE_URL,
   DEFAULT_LLM_MODEL,
   LLM_API_KEY_HEADER,
   LLM_BASE_URL_HEADER,
@@ -18,6 +17,7 @@ import {
   MAX_CHAT_HISTORY_ITEMS,
 } from "@/lib/chat-history";
 import { RUNTIME_LABEL_DEFAULTS } from "@/lib/localization";
+import { callerKey, consumeRequest } from "@/lib/rate-limit";
 import { runWorkflow } from "@/lib/workflow/graph";
 
 export const runtime = "nodejs";
@@ -47,7 +47,7 @@ function readLlmConfig(request: NextRequest): LlmConfig | null {
   return {
     apiKey,
     baseUrl: resolveAllowedLlmBaseUrl(
-      request.headers.get(LLM_BASE_URL_HEADER)?.trim() || DEFAULT_LLM_BASE_URL,
+      request.headers.get(LLM_BASE_URL_HEADER)?.trim(),
     ),
     model: request.headers.get(LLM_MODEL_HEADER)?.trim() || DEFAULT_LLM_MODEL,
   };
@@ -69,6 +69,18 @@ function sseFrame(event: ChatEvent): string {
  * @returns an SSE stream response
  */
 export async function POST(request: NextRequest): Promise<Response> {
+  // Counted before any other work so a caller over the limit cannot make the
+  // server parse a body, contact a provider, or fetch a third-party page.
+  const limit = consumeRequest(callerKey(request.headers));
+  if (!limit.allowed) {
+    return Response.json(
+      { error: "Too many requests" },
+      {
+        status: 429,
+        headers: { "retry-after": String(limit.retryAfterSeconds) },
+      },
+    );
+  }
   let config: LlmConfig | null;
   try {
     config = readLlmConfig(request);

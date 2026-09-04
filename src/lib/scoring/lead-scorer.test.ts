@@ -86,6 +86,28 @@ describe("scoreBant budget funding", () => {
   });
 });
 
+describe("scoreMeddic renewal timing", () => {
+  it("marks a distant renewal window looked-for-and-absent, not evidence", () => {
+    const element = scoreMeddic({
+      contractRenewalWindowMonths: 24,
+    }).elements.find((candidate) => candidate.code === "Dp");
+    const renewal = element?.checks.find(
+      (check) => check.label === "contract renewal window",
+    );
+    expect(renewal).toMatchObject({ assessed: true, present: false });
+  });
+
+  it("counts a near renewal window as evidence", () => {
+    const element = scoreMeddic({
+      contractRenewalWindowMonths: 3,
+    }).elements.find((candidate) => candidate.code === "Dp");
+    const renewal = element?.checks.find(
+      (check) => check.label === "contract renewal window",
+    );
+    expect(renewal).toMatchObject({ assessed: true, present: true });
+  });
+});
+
 describe("scoreMeddic", () => {
   /**
    * Read one element's graded percentage out of a MEDDIC result.

@@ -78,7 +78,7 @@ export interface ProspectComposite {
 }
 
 /** Weights from the design doc; must sum to 1. */
-export const CATEGORY_WEIGHTS = {
+const CATEGORY_WEIGHTS = {
   companyFit: 0.25,
   contactAccess: 0.2,
   opportunityQuality: 0.2,
@@ -87,7 +87,20 @@ export const CATEGORY_WEIGHTS = {
 } as const;
 
 /** Score assigned to a category whose subagent failed (design doc rule). */
-export const NEUTRAL_CATEGORY_SCORE = 50;
+const NEUTRAL_CATEGORY_SCORE = 50;
+
+/** A renewal this close is a live timing signal for BANT and MEDDIC alike. */
+const RENEWAL_WINDOW_MONTHS = 6;
+
+/** Largest score any single BANT dimension may contribute. */
+const BANT_DIMENSION_MAX = 25;
+
+/** Headcounts that read as budget capacity, per the design doc's rubric. */
+const EMPLOYEES_LARGE = 200;
+const EMPLOYEES_MID = 50;
+
+/** Open roles at or above this read as a hiring surge rather than churn. */
+const HIRING_SURGE_POSTINGS = 10;
 
 const FUNDING_STRONG_USD = 10_000_000;
 const FUNDING_MODERATE_USD = 1_000_000;
@@ -115,12 +128,12 @@ function scoreBudget(signals: ProspectSignals): BantDimension {
     }
   }
   if (signals.employeeCount !== undefined) {
-    if (signals.employeeCount >= 200) {
+    if (signals.employeeCount >= EMPLOYEES_LARGE) {
       score += 8;
-      notes.push("200+ employees");
-    } else if (signals.employeeCount >= 50) {
+      notes.push(`${EMPLOYEES_LARGE}+ employees`);
+    } else if (signals.employeeCount >= EMPLOYEES_MID) {
       score += 5;
-      notes.push("50+ employees");
+      notes.push(`${EMPLOYEES_MID}+ employees`);
     }
   }
   if (signals.hasPricingPage) {
@@ -133,7 +146,7 @@ function scoreBudget(signals: ProspectSignals): BantDimension {
   }
   return {
     name: "budget",
-    score: clamp(score, 0, 25),
+    score: clamp(score, 0, BANT_DIMENSION_MAX),
     evidence: notes.length > 0 ? notes.join("; ") : "no budget signals found",
   };
 }
@@ -155,7 +168,7 @@ function scoreAuthority(signals: ProspectSignals): BantDimension {
   }
   return {
     name: "authority",
-    score: clamp(score, 0, 25),
+    score: clamp(score, 0, BANT_DIMENSION_MAX),
     evidence: notes.length > 0 ? notes.join("; ") : "no authority signals found",
   };
 }
@@ -176,7 +189,7 @@ function scoreNeed(signals: ProspectSignals): BantDimension {
   if (reviews > 0) notes.push(`${reviews} reviews mention pain`);
   return {
     name: "need",
-    score: clamp(score, 0, 25),
+    score: clamp(score, 0, BANT_DIMENSION_MAX),
     evidence: notes.length > 0 ? notes.join("; ") : "no need signals found",
   };
 }
@@ -194,7 +207,7 @@ function scoreTimeline(signals: ProspectSignals): BantDimension {
     notes.push("funding within last 12 months");
   }
   const jobs = signals.activeJobPostings ?? 0;
-  if (jobs >= 10) {
+  if (jobs >= HIRING_SURGE_POSTINGS) {
     score += 10;
     notes.push(`${jobs} open roles - hiring surge`);
   } else if (jobs > 0) {
@@ -202,13 +215,13 @@ function scoreTimeline(signals: ProspectSignals): BantDimension {
     notes.push(`${jobs} open roles`);
   }
   const window = signals.contractRenewalWindowMonths;
-  if (window !== undefined && window <= 6) {
+  if (window !== undefined && window <= RENEWAL_WINDOW_MONTHS) {
     score += 3;
     notes.push(`renewal window ~${window} months`);
   }
   return {
     name: "timeline",
-    score: clamp(score, 0, 25),
+    score: clamp(score, 0, BANT_DIMENSION_MAX),
     evidence: notes.length > 0 ? notes.join("; ") : "no timeline signals found",
   };
 }
@@ -248,6 +261,7 @@ export function scoreMeddic(signals: ProspectSignals): MeddicResult {
   // assessed only if a future source supplies them, and until then they are
   // excluded from the percentage instead of capping it below 100%.
   const reviews = signals.reviewsMentioningPain;
+  const renewal = signals.contractRenewalWindowMonths;
   const definitions: {
     code: MeddicResult["elements"][number]["code"];
     name: string;
@@ -328,9 +342,13 @@ export function scoreMeddic(signals: ProspectSignals): MeddicResult {
           assessed: true,
         },
         {
+          // Knowing the window is not the signal - a *near* renewal is. Split
+          // present from assessed so a distant renewal reads as looked-for-
+          // and-absent instead of silently scoring as evidence.
           label: "contract renewal window",
-          present: signals.contractRenewalWindowMonths !== undefined,
-          assessed: signals.contractRenewalWindowMonths !== undefined,
+          present:
+            renewal !== undefined && renewal <= RENEWAL_WINDOW_MONTHS,
+          assessed: renewal !== undefined,
         },
       ],
     },

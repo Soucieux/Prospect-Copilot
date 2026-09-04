@@ -168,3 +168,16 @@ describe("findContacts filtering people from other companies", () => {
     expect(contacts[0].seniority).toBe("C-Suite");
   });
 });
+
+describe("findContacts LinkedIn URL normalization", () => {
+  it("keeps a protocol-relative profile href well-formed", () => {
+    const html = `<html><body><div>
+      <a href="//www.linkedin.com/in/jane-doe"><h3>Jane Doe</h3></a>
+      <p>Chief Executive Officer</p>
+    </div></body></html>`;
+    const jane = findContacts(html).find(
+      (person) => person.name === "Jane Doe",
+    );
+    expect(jane?.linkedin).toBe("https://www.linkedin.com/in/jane-doe");
+  });
+});

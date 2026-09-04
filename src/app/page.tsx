@@ -5,13 +5,16 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   ACTIVE_CONVERSATION_STORAGE_KEY,
-  DEFAULT_LLM_BASE_URL,
-  DEFAULT_LLM_MODEL,
   LLM_API_KEY_HEADER,
   LLM_BASE_URL_HEADER,
   LLM_MODEL_HEADER,
-  SETTINGS_STORAGE_KEY,
 } from "@/lib/constants";
+import {
+  DEFAULT_SETTINGS,
+  loadSettings,
+  saveSettings,
+  type Settings,
+} from "@/lib/settings-storage";
 import type {
   ChatMessage,
   MatchCandidate,
@@ -23,6 +26,7 @@ import {
   updateLastMessageSnapshot,
 } from "@/lib/chat-state";
 import { buildChatHistory } from "@/lib/chat-history";
+import { consumeStream } from "@/lib/chat-stream";
 import {
   createConversation,
   deleteConversation,
@@ -31,18 +35,6 @@ import {
   titleFromMessages,
   type StoredConversation,
 } from "@/lib/storage/conversations";
-
-interface Settings {
-  baseUrl: string;
-  model: string;
-  apiKey: string;
-}
-
-const DEFAULT_SETTINGS: Settings = {
-  baseUrl: DEFAULT_LLM_BASE_URL,
-  model: DEFAULT_LLM_MODEL,
-  apiKey: "",
-};
 
 /** Empty-state prompt cards, one per headline skill. */
 const SUGGESTIONS: { title: string; example: string }[] = [
@@ -103,24 +95,24 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as Partial<Settings>;
-        setSettings({ ...DEFAULT_SETTINGS, ...parsed });
-      } catch {
-        // Corrupt settings fall back to defaults.
-      }
-    }
+    setSettings(loadSettings(window.localStorage));
   }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
-  }, [settings]);
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [messages]);
+
+  /**
+   * Apply one settings edit and persist the result immediately. Settings are
+   * written here rather than in an effect so that mounting the page can never
+   * overwrite stored settings with the defaults it renders before they load.
+   * @param patch the settings fields the user changed
+   */
+  function updateSettings(patch: Partial<Settings>): void {
+    const next = { ...settings, ...patch };
+    saveSettings(window.localStorage, next);
+    setSettings(next);
+  }
 
   /**
    * Apply a patch function to the trailing message in the conversation.
@@ -464,7 +456,7 @@ export default function Home() {
                 placeholder="Your DeepSeek API key"
                 value={settings.apiKey}
                 onChange={(event) =>
-                  setSettings({ ...settings, apiKey: event.target.value })
+                  updateSettings({ apiKey: event.target.value })
                 }
                 onCopy={(event) => event.preventDefault()}
                 onCut={(event) => event.preventDefault()}
@@ -476,7 +468,7 @@ export default function Home() {
                 id="setting-model"
                 value={settings.model}
                 onChange={(event) =>
-                  setSettings({ ...settings, model: event.target.value })
+                  updateSettings({ model: event.target.value })
                 }
               />
             </div>
@@ -486,7 +478,7 @@ export default function Home() {
                 id="setting-base-url"
                 value={settings.baseUrl}
                 onChange={(event) =>
-                  setSettings({ ...settings, baseUrl: event.target.value })
+                  updateSettings({ baseUrl: event.target.value })
                 }
               />
               <small className="field-help">
@@ -509,7 +501,11 @@ export default function Home() {
   );
 }
 
-/** Semantic, styled Markdown renderer shared by streaming and final reports. */
+/**
+ * Semantic, styled Markdown renderer shared by streaming and final reports.
+ * @param markdown the report or streamed assistant text
+ * @returns the rendered document
+ */
 function ReportDocument({ markdown }: { markdown: string }): JSX.Element {
   return (
     <article className="report-document">
@@ -532,6 +528,7 @@ function ReportDocument({ markdown }: { markdown: string }): JSX.Element {
 /**
  * Live phase/agent progress list during a pipeline run.
  * @param events progress events accumulated so far
+ * @returns the progress list
  */
 function ProgressPanel({ events }: { events: ProgressEvent[] }): JSX.Element {
   return (
@@ -570,6 +567,7 @@ const DEFAULT_SCORE_LABELS = {
 /**
  * Score summary card with Unicode block bars, ported from the CLI design.
  * @param report the structured report payload
+ * @returns the summary card
  */
 function Scorecard({ report }: ReportSectionProps): JSX.Element {
   const labels = report.scoreLabels ?? DEFAULT_SCORE_LABELS;
@@ -625,6 +623,7 @@ const DEFAULT_MATCH_CARD_LABELS = {
  * @param labels localized card chrome labels
  * @param disabled true while another request is streaming
  * @param onSelect called with the clicked candidate and localized request text
+ * @returns the ranked candidate cards
  */
 function MatchCandidateCards({
   candidates,
@@ -694,82 +693,4 @@ function MatchCandidateCards({
       ))}
     </div>
   );
-}
-
-/**
- * Read the SSE stream from /api/chat, updating the last assistant message.
- * @param body the fetch response body
- * @param updateLast patches the trailing assistant message
- */
-async function consumeStream(
-  body: ReadableStream<Uint8Array>,
-  updateLast: (patch: (message: ChatMessage) => ChatMessage) => void,
-): Promise<void> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
-    for (const frame of frames) {
-      applyEvent(frame, updateLast);
-    }
-  }
-}
-
-/**
- * Apply one SSE frame to the trailing assistant message.
- * @param frame raw SSE frame
- * @param updateLast patches the trailing assistant message
- */
-function applyEvent(
-  frame: string,
-  updateLast: (patch: (message: ChatMessage) => ChatMessage) => void,
-): void {
-  const trimmed = frame.trim();
-  if (!trimmed.startsWith("data:")) return;
-  let event: Record<string, unknown>;
-  try {
-    event = JSON.parse(trimmed.slice(5).trim());
-  } catch {
-    return;
-  }
-  if (event.type === "token") {
-    const text = typeof event.text === "string" ? event.text : "";
-    updateLast((message) => ({ ...message, content: message.content + text }));
-  } else if (event.type === "phase") {
-    updateLast((message) => ({
-      ...message,
-      progress: [
-        ...(message.progress ?? []),
-        {
-          kind: "phase",
-          label: String(event.phase),
-          detail: String(event.detail),
-        },
-      ],
-    }));
-  } else if (event.type === "agent") {
-    updateLast((message) => ({
-      ...message,
-      progress: [
-        ...(message.progress ?? []),
-        {
-          kind: "agent",
-          label: String(event.agent),
-          detail: String(event.detail),
-          status: event.status as ProgressEvent["status"],
-          score: typeof event.score === "number" ? event.score : undefined,
-        },
-      ],
-    }));
-  } else if (event.type === "report") {
-    const report = event.report as ReportState;
-    updateLast((message) => ({ ...message, report }));
-  } else if (event.type === "error") {
-    throw new Error(String(event.message));
-  }
 }

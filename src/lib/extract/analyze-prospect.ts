@@ -5,6 +5,8 @@
  */
 
 import * as cheerio from "cheerio";
+import { absoluteUrl } from "@/lib/extract/absolute-url";
+import { jsonLdNodes } from "@/lib/extract/json-ld";
 
 export interface ProspectExtraction {
   companyName: string | null;
@@ -61,6 +63,7 @@ const ENTERPRISE_PATTERN = /enterprise|custom pricing|contact (us|sales) for/i;
 
 const MAX_SOCIAL_PROFILES = 8;
 const MAX_PHONES = 5;
+const MAX_EMAILS = 20;
 // These links are only ever scanned for the six subpage patterns, never sent
 // to a model, so the budget is generous: a large navigation can otherwise use
 // the whole allowance before a footer "about" or "careers" link is reached.
@@ -77,8 +80,13 @@ export function analyzeProspect(
   pageUrl: string,
 ): ProspectExtraction {
   const $ = cheerio.load(html);
+  // Collected once: the three collectors below each used to walk every anchor
+  // on the page independently.
+  const anchors = $("a[href]")
+    .toArray()
+    .map((anchor) => $(anchor).attr("href") ?? "");
   const jsonLdOrg = extractJsonLdOrg($);
-  const pricingPageUrl = findPricingLink($, pageUrl);
+  const pricingPageUrl = findPricingLink(anchors, pageUrl);
   return {
     companyName:
       jsonLdOrg?.name ??
@@ -88,16 +96,16 @@ export function analyzeProspect(
     description:
       $('meta[name="description"]').attr("content")?.trim() ?? null,
     techStack: detectTechStack(html),
-    socialProfiles: extractSocials($),
-    emails: uniqueMatches(html, EMAIL_PATTERN).filter(
-      (email) => !/\.(png|jpe?g|gif|svg|webp)$/i.test(email),
-    ),
+    socialProfiles: extractSocials(anchors),
+    emails: uniqueMatches(html, EMAIL_PATTERN)
+      .filter((email) => !/\.(png|jpe?g|gif|svg|webp)$/i.test(email))
+      .slice(0, MAX_EMAILS),
     phones: uniqueMatches(html, PHONE_PATTERN).slice(0, MAX_PHONES),
     hasPricingPage: pricingPageUrl !== null,
     pricingPageUrl,
     enterpriseTierListed: ENTERPRISE_PATTERN.test(html),
     jsonLdOrg,
-    internalLinks: extractInternalLinks($, pageUrl),
+    internalLinks: extractInternalLinks(anchors, pageUrl),
   };
 }
 
@@ -140,64 +148,44 @@ export function detectTechStack(html: string): string[] {
 function extractJsonLdOrg(
   $: cheerio.CheerioAPI,
 ): ProspectExtraction["jsonLdOrg"] {
-  const scripts = $('script[type="application/ld+json"]').toArray();
-  for (const script of scripts) {
-    try {
-      const data: unknown = JSON.parse($(script).text() || "{}");
-      const nodes = Array.isArray(data) ? data : [data];
-      for (const node of nodes) {
-        const typed = node as { "@type"?: unknown };
-        const type = typed?.["@type"];
-        const types = Array.isArray(type) ? type : [type];
-        if (
-          types.some((t) => t === "Organization" || t === "Corporation")
-        ) {
-          const org = node as {
-            name?: unknown;
-            foundingDate?: unknown;
-            numberOfEmployees?: unknown;
-            address?: unknown;
-          };
-          return {
-            name: typeof org.name === "string" ? org.name : undefined,
-            foundingDate:
-              typeof org.foundingDate === "string"
-                ? org.foundingDate
-                : undefined,
-            numberOfEmployees:
-              typeof org.numberOfEmployees === "number" ||
-              typeof org.numberOfEmployees === "string"
-                ? org.numberOfEmployees
-                : undefined,
-            address:
-              typeof org.address === "string" ? org.address : undefined,
-          };
-        }
-      }
-    } catch {
-      // Malformed JSON-LD blocks are skipped.
+  for (const node of jsonLdNodes($)) {
+    const typed = node as { "@type"?: unknown };
+    const type = typed?.["@type"];
+    const types = Array.isArray(type) ? type : [type];
+    if (!types.some((t) => t === "Organization" || t === "Corporation")) {
+      continue;
     }
+    const org = node as {
+      name?: unknown;
+      foundingDate?: unknown;
+      numberOfEmployees?: unknown;
+      address?: unknown;
+    };
+    return {
+      name: typeof org.name === "string" ? org.name : undefined,
+      foundingDate:
+        typeof org.foundingDate === "string" ? org.foundingDate : undefined,
+      numberOfEmployees:
+        typeof org.numberOfEmployees === "number" ||
+        typeof org.numberOfEmployees === "string"
+          ? org.numberOfEmployees
+          : undefined,
+      address: typeof org.address === "string" ? org.address : undefined,
+    };
   }
   return null;
 }
 
 /**
  * Collect absolute social profile URLs from anchor hrefs.
- * @param $ loaded Cheerio document
+ * @param hrefs every href on the page, in document order
  * @returns unique social URLs (max 8)
  */
-function extractSocials($: cheerio.CheerioAPI): string[] {
+function extractSocials(hrefs: string[]): string[] {
   const found = new Set<string>();
-  for (const anchor of $("a[href]").toArray()) {
-    const href = $(anchor).attr("href") ?? "";
+  for (const href of hrefs) {
     if (SOCIAL_PATTERNS.some(({ pattern }) => pattern.test(href))) {
-      found.add(
-        href.startsWith("//")
-          ? `https:${href}`
-          : href.startsWith("http")
-            ? href
-            : `https://${href}`,
-      );
+      found.add(absoluteUrl(href));
     }
   }
   return [...found].slice(0, MAX_SOCIAL_PROFILES);
@@ -205,16 +193,12 @@ function extractSocials($: cheerio.CheerioAPI): string[] {
 
 /**
  * Find a pricing-style link among anchors.
- * @param $ loaded Cheerio document
+ * @param hrefs every href on the page, in document order
  * @param pageUrl base URL for resolution
  * @returns absolute pricing URL, or null
  */
-function findPricingLink(
-  $: cheerio.CheerioAPI,
-  pageUrl: string,
-): string | null {
-  for (const anchor of $("a[href]").toArray()) {
-    const href = $(anchor).attr("href") ?? "";
+function findPricingLink(hrefs: string[], pageUrl: string): string | null {
+  for (const href of hrefs) {
     if (PRICING_HREF_PATTERN.test(href)) {
       try {
         return new URL(href, pageUrl).toString();
@@ -228,18 +212,14 @@ function findPricingLink(
 
 /**
  * Collect same-origin links for discovery of subpages.
- * @param $ loaded Cheerio document
+ * @param hrefs every href on the page, in document order
  * @param pageUrl base URL
- * @returns unique absolute internal links (max 40)
+ * @returns unique absolute internal links, bounded by MAX_INTERNAL_LINKS
  */
-function extractInternalLinks(
-  $: cheerio.CheerioAPI,
-  pageUrl: string,
-): string[] {
+function extractInternalLinks(hrefs: string[], pageUrl: string): string[] {
   const origin = new URL(pageUrl).origin;
   const found = new Set<string>();
-  for (const anchor of $("a[href]").toArray()) {
-    const href = $(anchor).attr("href") ?? "";
+  for (const href of hrefs) {
     if (href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) {
       continue;
     }

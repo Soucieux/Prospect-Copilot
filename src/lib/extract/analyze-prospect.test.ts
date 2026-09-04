@@ -28,6 +28,17 @@ const HOMEPAGE_HTML = `<!doctype html>
 </body>
 </html>`;
 
+describe("analyzeProspect email bounds", () => {
+  it("caps extracted emails so one page cannot flood the briefing", () => {
+    const many = Array.from(
+      { length: 40 },
+      (_value, index) => `<a href="mailto:p${index}@acme.example.com">c</a>`,
+    ).join("");
+    const result = analyzeProspect(`<html><body>${many}</body></html>`, PAGE_URL);
+    expect(result.emails).toHaveLength(20);
+  });
+});
+
 describe("analyzeProspect", () => {
   const result = analyzeProspect(HOMEPAGE_HTML, PAGE_URL);
 

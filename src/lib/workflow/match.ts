@@ -1,12 +1,11 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
-import type { ReportState } from "@/lib/chat-types";
 import {
-  formatMatchSkillResult,
   resolveMatchCandidatesStage,
   scoreMatchCandidatesStage,
   type CandidatePool,
   type CandidateScoreBatch,
 } from "@/lib/skills/match";
+import { formatMatchSkillResult } from "@/lib/skills/match-report";
 import type { WorkflowRuntimeContext } from "@/lib/workflow/context";
 import {
   WORKFLOW_NODE,
@@ -14,7 +13,11 @@ import {
   WORKFLOW_STATUS,
 } from "@/lib/workflow/constants";
 import { buildScoreLabels } from "@/lib/workflow/events";
-import { WorkflowStateAnnotation } from "@/lib/workflow/state";
+import { buildReport } from "@/lib/workflow/report";
+import {
+  WorkflowStateAnnotation,
+  requireStageValue,
+} from "@/lib/workflow/state";
 
 /** Stage-level state retained only while the match subgraph is active. */
 const MatchStateAnnotation = Annotation.Root({
@@ -36,8 +39,9 @@ type MatchStateUpdate = typeof MatchStateAnnotation.Update;
  * Select clarification or candidate discovery from validated routing state.
  * @param state current match subgraph state
  * @returns next node identifier
+ * @internal exported for deterministic stage-selection tests
  */
-function selectMatchEntry(state: MatchState): string {
+export function selectMatchEntry(state: MatchState): string {
   const routing = state.routing;
   return !routing?.sellingContext && !routing?.candidates?.length
     ? WORKFLOW_NODE.matchClarify
@@ -49,8 +53,9 @@ function selectMatchEntry(state: MatchState): string {
  * @param state current match subgraph state
  * @param context non-persisted request runtime
  * @returns localized reply and completed-status update
+ * @internal exported for deterministic stage tests
  */
-function clarifyMatchNode(
+export function clarifyMatchNode(
   state: MatchState,
   context: WorkflowRuntimeContext,
 ): MatchStateUpdate {
@@ -101,8 +106,9 @@ async function resolveMatchNode(
  * Select scoring only when candidate resolution produced work.
  * @param state current match subgraph state
  * @returns scoring or formatting node identifier
+ * @internal exported for deterministic stage-selection tests
  */
-function selectResolvedCandidates(state: MatchState): string {
+export function selectResolvedCandidates(state: MatchState): string {
   return state.candidatePool?.candidates.length
     ? WORKFLOW_NODE.matchScore
     : WORKFLOW_NODE.matchFormat;
@@ -121,7 +127,7 @@ async function scoreMatchNode(
   const routing = state.routing;
   const scoreBatch = await scoreMatchCandidatesStage(
     context.config,
-    state.candidatePool as CandidatePool,
+    requireStageValue(state.candidatePool, "candidate pool"),
     routing?.sellingContext ?? null,
     routing?.candidates ?? null,
     context.emit,
@@ -140,13 +146,14 @@ async function scoreMatchNode(
  * @param state current match subgraph state
  * @param context non-persisted request runtime
  * @returns report and completed-status update
+ * @internal exported for deterministic stage tests
  */
-function formatMatchNode(
+export function formatMatchNode(
   state: MatchState,
   context: WorkflowRuntimeContext,
 ): MatchStateUpdate {
   const routing = state.routing;
-  const candidatePool = state.candidatePool as CandidatePool;
+  const candidatePool = requireStageValue(state.candidatePool, "candidate pool");
   const scoreBatch = state.scoreBatch ?? {
     scored: [],
     labels: candidatePool.labels,
@@ -161,19 +168,14 @@ function formatMatchNode(
     routing?.matchDirection ?? "sell",
     routing?.matchLocation ?? null,
   );
-  const report: ReportState = {
+  const report = buildReport({
     kind: "match",
     companyName: title,
-    url: null,
-    score: null,
-    grade: null,
-    confidence: null,
-    categories: null,
     matches,
     matchLabels: cardLabels,
     scoreLabels: buildScoreLabels(state.runtimeLabels, "match"),
     markdown,
-  };
+  });
   context.emit({ type: "report", report });
   return { report, status: WORKFLOW_STATUS.completed };
 }

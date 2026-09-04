@@ -11,6 +11,8 @@ export interface ChatHistoryItem {
 
 /**
  * Build bounded wire history without modifying the messages persisted locally.
+ * @param messages the full locally persisted conversation
+ * @returns the trailing turns, each truncated to the per-item character limit
  */
 export function buildChatHistory(messages: ChatMessage[]): ChatHistoryItem[] {
   return messages

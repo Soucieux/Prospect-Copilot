@@ -4,19 +4,18 @@
  * a URL is available, then streams a single markdown deliverable.
  */
 
+import { WORKFLOW_PHASE } from "@/lib/workflow/constants";
 import {
   streamChatCompletion,
   type LlmConfig,
 } from "@/lib/llm";
 import type { EmitCallback } from "@/lib/agent/schemas";
-import {
-  analyzeProspect,
-  parseEmployeeCount,
-} from "@/lib/extract/analyze-prospect";
+import { analyzeProspect } from "@/lib/extract/analyze-prospect";
 import { findContacts } from "@/lib/extract/contact-finder";
 import { fetchWithVariants } from "@/lib/extract/fetch-page";
 import { htmlToText } from "@/lib/extract/html-to-text";
-import { scoreBant, type ProspectSignals } from "@/lib/scoring/lead-scorer";
+import { scoreBant } from "@/lib/scoring/lead-scorer";
+import { buildProspectSignals } from "@/lib/scoring/prospect-signals";
 import {
   NOT_PUBLICLY_AVAILABLE,
   RESPOND_IN_USER_LANGUAGE,
@@ -51,7 +50,7 @@ Rules:
 - Output clean GitHub-flavored markdown with clear section headers. No preamble, no closing chatter.
 - ${RESPOND_IN_USER_LANGUAGE}`;
 
-export const STANDALONE_SKILLS: StandaloneSkill[] = [
+const STANDALONE_SKILLS: StandaloneSkill[] = [
   {
     name: "research",
     needsDiscovery: true,
@@ -137,13 +136,13 @@ verify as "${NOT_PUBLICLY_AVAILABLE}" rather than guessing.`;
   if (skill.needsDiscovery && url) {
     emit({
       type: "phase",
-      phase: "discovery",
+      phase: WORKFLOW_PHASE.discovery,
       detail: formatRuntimeLabel(runtimeLabels.fetchingTemplate, { target: url }),
     });
     const page = await fetchWithVariants(url, signal);
     const extraction = analyzeProspect(page.html, page.url);
     const contacts = findContacts(page.html, extraction.companyName);
-    const signals = buildSignals(extraction, contacts);
+    const signals = buildProspectSignals(extraction, contacts);
     const bant = skill.name === "qualify" ? scoreBant(signals) : null;
     grounding = `Discovery briefing for ${page.url}:
 - Company: ${extraction.companyName ?? NOT_PUBLICLY_AVAILABLE}
@@ -173,7 +172,7 @@ ${
 
   emit({
     type: "phase",
-    phase: "analysis",
+    phase: WORKFLOW_PHASE.analysis,
     detail: formatRuntimeLabel(runtimeLabels.runningSkillTemplate, {
       skill: localizedSkillName(runtimeLabels, skill.name),
     }),
@@ -204,32 +203,10 @@ ${
 
   emit({
     type: "phase",
-    phase: "done",
+    phase: WORKFLOW_PHASE.done,
     detail: formatRuntimeLabel(runtimeLabels.skillCompleteTemplate, {
       skill: localizedSkillName(runtimeLabels, skill.name),
     }),
   });
   return { markdown, title };
-}
-
-/**
- * Build deterministic signals from an extraction and contacts.
- * @param extraction homepage extraction
- * @param contacts people found on the page
- * @returns the signal blob for scoreBant
- */
-function buildSignals(
-  extraction: ReturnType<typeof analyzeProspect>,
-  contacts: ReturnType<typeof findContacts>,
-): ProspectSignals {
-  const employeeCount = parseEmployeeCount(
-    extraction.jsonLdOrg?.numberOfEmployees,
-  );
-  return {
-    employeeCount,
-    hasPricingPage: extraction.hasPricingPage,
-    enterpriseTierListed: extraction.enterpriseTierListed,
-    decisionMakersFound: contacts.length,
-    cSuiteIdentified: contacts.some((c) => c.seniority === "C-Suite"),
-  };
 }

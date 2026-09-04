@@ -8,6 +8,9 @@ import type { ChatMessage } from "@/lib/chat-types";
 
 const CONVERSATION_KEY_PREFIX = "conversation:";
 
+/** Title shown before a conversation has its first user message. */
+const DEFAULT_CONVERSATION_TITLE = "New conversation";
+
 /** Maximum length of an auto-generated conversation title. */
 const TITLE_MAX_LENGTH = 60;
 
@@ -29,7 +32,7 @@ export function createConversation(): StoredConversation {
   const now = new Date().toISOString();
   return {
     id: crypto.randomUUID(),
-    title: "New conversation",
+    title: DEFAULT_CONVERSATION_TITLE,
     createdAt: now,
     updatedAt: now,
     messages: [],
@@ -43,7 +46,7 @@ export function createConversation(): StoredConversation {
  */
 export function titleFromMessages(messages: ChatMessage[]): string {
   const firstUser = messages.find((message) => message.role === "user");
-  if (!firstUser) return "New conversation";
+  if (!firstUser) return DEFAULT_CONVERSATION_TITLE;
   const trimmed = firstUser.content.trim().replace(/\s+/g, " ");
   return trimmed.length <= TITLE_MAX_LENGTH
     ? trimmed
