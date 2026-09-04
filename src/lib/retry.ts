@@ -1,16 +1,8 @@
 import { ZodError } from "zod";
 import { LlmError, LlmStructuredOutputError } from "@/lib/llm";
 
-const RETRYABLE_LLM_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
-
-/** Raised when a structured model response contains no usable JSON object. */
-export class StructuredOutputError extends Error {
-  /** Create a repairable structured-output failure. */
-  public constructor() {
-    super("Structured model response was invalid");
-    this.name = "StructuredOutputError";
-  }
-}
+/** Provider statuses worth one more attempt; the single owner of this policy. */
+export const RETRYABLE_LLM_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
 /** Settings for one bounded, cancellable retry boundary. */
 export interface RetryOperationOptions {
@@ -94,8 +86,7 @@ export function isRetryableStructuredLlmError(caught: unknown): boolean {
     caught instanceof TypeError ||
     caught instanceof SyntaxError ||
     caught instanceof ZodError ||
-    caught instanceof LlmStructuredOutputError ||
-    caught instanceof StructuredOutputError
+    caught instanceof LlmStructuredOutputError
   );
 }
 

@@ -66,3 +66,23 @@ export type WorkflowState = typeof WorkflowStateAnnotation.State;
 
 /** Partial state updates returned by graph nodes. */
 export type WorkflowStateUpdate = typeof WorkflowStateAnnotation.Update;
+
+/**
+ * Read a stage value the graph's edges guarantee has already been produced.
+ * The edges make this unreachable, so this is not defensive handling: it
+ * replaces an unchecked cast with a failure that names the broken ordering
+ * if an edge is ever rewired.
+ * @param value the stage value to read
+ * @param stage the node reading it, used in the failure message
+ * @returns the value, proven present
+ * @throws Error when a node ran before the stage that fills its input
+ */
+export function requireStageValue<Value>(
+  value: Value | null | undefined,
+  stage: string,
+): Value {
+  if (value === null || value === undefined) {
+    throw new Error(`${stage} ran before its input was produced`);
+  }
+  return value;
+}
