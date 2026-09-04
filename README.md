@@ -240,7 +240,68 @@ services while still allowing an administrator to opt in a local provider.
 | `npm run dev` | Dev server |
 | `npm run build` / `npm start` | Production build / serve |
 | `npm test` | Vitest suite (scoring, extraction, contacts, URL safety, routing, matching) |
+| `npm run test:coverage` | Vitest with V8 coverage; fails below the floors in `vitest.config.ts` |
+| `npm run e2e` | Playwright suite; builds and serves the production app itself |
 | `npm run typecheck` | `tsc --noEmit` |
+
+First E2E run only: `npx playwright install chromium firefox webkit`.
+
+## Testing
+
+Three layers, each covering what the layer below cannot:
+
+| Layer | Command | Covers |
+| --- | --- | --- |
+| Unit | `npm test` | Scoring, extraction, parsing, routing, validation, retry and SSRF classification |
+| Coverage gate | `npm run test:coverage` | Enforces the floors below; a regression fails the run rather than being noticed later |
+| End-to-end | `npm run e2e` | The browser-only paths: hydration, streaming, IndexedDB history, credential storage, responsive layout |
+
+Every end-to-end spec stubs `/api/chat` in the browser, so no test contacts a model provider.
+The endpoint's own behaviour - guard rails, SSE framing, abort handling, and error mapping - is
+covered by unit tests that call the handler directly with the workflow replaced.
+
+### What the coverage floors mean
+
+No percentage decides whether this project is tested. `AGENTS.md` asks for testable success
+criteria per behaviour - invalid-input checks for validation, a reproducing regression for a
+fix, preserved behaviour for a refactor - and that is the standard the suite is written to.
+The floors below exist only as a regression ratchet: they stop coverage sliding below where it
+already is, so an untested addition fails the run instead of landing unnoticed. Reaching one is
+never evidence that a behaviour is covered.
+
+With that said, statement coverage is the wrong number to read on its own. A file can sit at 30% statements
+because its body is a sequence of calls into the graph runtime and the model, while every
+decision it makes is already pinned. **Branch** coverage is what a routing or guard bug
+actually breaks, so it is the floor that is enforced everywhere.
+
+| Scope | Floor | Why |
+| --- | --- | --- |
+| `src/lib/*.ts` | 90% statements | Streaming, retry, rate limiting, endpoint policy, settings storage |
+| `src/lib/extract/**` | 90% statements | URL normalization, the SSRF guard, DNS pinning, HTML and JSON-LD parsing |
+| `src/lib/scoring/**` | 95% statements | Deterministic scoring; no I/O, so nothing here has an excuse |
+| `src/lib/skills/**` | 95% statements | Prompt assembly and report construction |
+| `src/app/api/**` | 95% statements | The chat endpoint: guard rails and the SSE stream it returns |
+| `src/lib/workflow/**` | 95% **branches only** | Every routing and stage decision, without pinning node bodies |
+
+`src/lib/workflow/**` is the one scope whose statement count is left unpinned, and the reason is
+visible in its numbers: 61% of statements, 98% of branches. The uncovered statements are node
+bodies that call the graph runtime and the model; the covered branches are every decision about
+which subgraph runs, whether a request needs clarification, whether scoring has work to do, and
+how invalid router output is recovered. Pinning the statements would mean faking LangGraph and
+the provider and then asserting the fakes were called.
+
+Two modules are covered by the layer that catches their real failure mode rather than by a
+percentage:
+
+- `src/lib/agent/orchestrator.ts` — 15% of statements and 100% of branches. It sequences the
+  five analysis workers; its decisions are tested, its calls are not.
+- `src/lib/storage/conversations.ts` — an `idb-keyval` wrapper at 100% of branches. Its behaviour
+  is asserted by `e2e/conversations.spec.ts` against a real IndexedDB, which is the only place
+  its failure mode appears.
+
+`src/lib/chat-types.ts`, the constants modules, `layout.tsx`, and `page.tsx` are excluded from
+measurement entirely: the first four are declarations with no branches, and the page is
+covered end to end.
 
 ## Safety rules ported from the original
 
@@ -267,7 +328,9 @@ project-level version or build numbers. Follow the repository-wide
 
 | Date | Updates | Git evidence |
 |---|---|---|
+| 2026-09-04 | Made the end-to-end suite actually run and turned coverage from a number into a gate. The specs had been failing on a 403 for every script bundle, which an earlier note recorded as a sandbox limitation; it was not one. The dev server's cross-origin guard rejects any request carrying an `Origin` header for a host outside its allowlist, and `127.0.0.1` is not on it - `curl` passed only because it sends no such header. Pointing the suite at `localhost` fixed it, and the suite now builds and serves the production app instead of the dev server, so no dev-only guard is in play at all. Running the specs then exposed a real defect: settings were persisted from an effect that ran on mount before the stored values had loaded, so every page load wrote the empty defaults over the saved record and React's development double-invoke made the loss permanent - a stored API key was erased on reload. Settings are now written where the user actually edits them, and nothing is written before an edit. Grew the suite to 19 specs across Chromium, Firefox, and WebKit (57 runs) covering the settings dialog and key isolation, conversation history through real IndexedDB, candidate cards and the follow-up audit they trigger, the stop control, and a phone viewport; Firefox caught a backdrop the other two engines clicked through. Added 40 transport-boundary tests for the page fetcher's DNS resolution, address pinning, error classification, and Retry-After parsing, taking it from 54% to 87% of statements and 67% to 100% of functions - the SSRF enforcement around the port guard had been untested. Coverage now fails the run below per-directory floors rather than only reporting, and the README records which modules those floors cover and why the orchestration layers are verified end to end instead. Added a scoped GitHub Actions workflow running typecheck, the coverage gate, the production build, and the three-browser suite. 297 unit tests, 57 end-to-end runs, typecheck, and the production build pass. Then closed the three coverage exemptions that did not hold up: the chat endpoint's streaming body, the graph's routing decisions, and the match subgraph's stage selection had been grouped with genuine orchestration, but each still contained untested decisions. A README claim that the endpoint was covered end to end was also wrong - every end-to-end spec stubs `/api/chat` in the browser, so no test reached the handler at all. Added 43 tests covering SSE framing, abort handling before and during a stream, provider-error mapping including the router's chosen language, request-limit and schema rejection, every workflow-selection branch, invalid-router-output recovery and its rethrow, and each match stage decision. The endpoint went from 36% to 97% of statements and 29% to 88% of branches, the graph from 45% to 96% of branches, and the workflow directory from 87% to 98%. Coverage floors were raised to hold the result and now pin branches, not just statements, since a routing bug breaks a decision rather than a line count. 340 unit tests, 57 end-to-end runs, typecheck, and the production build pass; overall statement coverage is 82%. Closed the last untested decisions, in the standalone skill's discovery briefing: every fallback for a field the site does not publish was unexercised, so nothing checked the promise the skill's own prompt makes - that unverifiable data is marked rather than guessed. Three tests now drive a page that publishes nothing and a contact carrying a LinkedIn but no job title, asserting the briefing reads "Not publicly available", "none found", and "title unknown" instead of leaking undefined, and that the report title falls back to the page URL when the company is never named. That file reached 100% of statements, branches, and functions. The coverage floors were also re-grounded: they had been justified against an external 80% target that this repository does not adopt, and now state plainly that they are a regression ratchet, with AGENTS.md's per-behaviour success criteria as the actual standard. 343 unit tests, 57 end-to-end runs, typecheck, and the production build pass; branch coverage is 90%. A final sweep closed the untested decisions in the six files where branch coverage still lagged, after an earlier claim that every decision was exercised proved wrong: 104 branches were unreached. The SSE reader now handles a keep-alive comment, a malformed frame, an event split across two network chunks, a token carrying no text, an unrecognized agent status, and an unknown event type - it went from 74% to 97% of branches. The router's company-URL filter, quoting, "unknown" answer and provider-failure path, the report renderers' location and truncation variants, the prospect report's missing-company, no-contacts, failed-subagent and untranslatable-category fallbacks, the retry helper's no-signal paths, and the provider error classifier's status, cancellation and structured-output branches are all now covered. Two dead defensive branches were identified rather than tested around: the SSE reader's frame-buffer fallback cannot be reached because a split always yields an element, and the delay helper's already-aborted check cannot be reached because its guard throws first - and that guard throws synchronously from a function typed as returning a promise, which the tests now record. Branch coverage rose from 90% to 91% overall with every targeted file above 87%, on 393 unit tests. | Pending local work |
 | 2026-09-02 | Declared Prospect Copilot's dated-history mode and linked it to the centralized repository policy. Runtime behavior, dependencies, deployment status, and project numbering remain unchanged. | This documentation commit |
+| 2026-09-02 | Completed the project's first repository-wide exhaustive pass; the earlier pass had covered 8 of 52 source files. Restricted the page fetcher to ports 80 and 443 on the initial URL and every redirect hop, closing an arbitrary-port probe against public hosts. Made the report schema the single definition of its shape and validated the report event at the wire boundary instead of casting it. Replaced every unchecked type assertion on nullable or external data: graph-stage reads now fail loudly and name the broken ordering, the agent status and skill name narrow instead of asserting, and settings restored from browser storage are validated field by field before the API key they carry is sent as a request header. Corrected MEDDIC so a distant contract renewal reads as looked-for-and-absent rather than as evidence. Bounded extracted emails and the briefing sent to the five parallel workers. Removed superseded code: the pre-workflow routing and match entry points, two unreachable helpers, and a dead parameter, redirecting their tests onto the live paths. Gave prospect signals, report construction, the retryable-status set, markdown rendering, and the SSE reader single owners, which also took the orchestrator from 977 to 613 lines and the match skill from 891 to 665. Corrected a protocol-relative LinkedIn href that rendered as a malformed four-slash URL in the decision-maker table, matching the handling the homepage extractor already had. Completed 36 missing JSDoc blocks, named the three buying-role patterns alongside the file's other patterns, removed an unreachable fallback, replaced duplicated literals with named constants, removed an unused catch binding, corrected a stale comment, and aligned the root layout with project style. A second pass under the revised audit skill added request rate limiting to the chat endpoint, moved the stored API key into its own browser record so nothing that reads or exports the settings can carry the credential with it, migrated any key already saved in the previous combined record, moved settings persistence out of the page into a testable module, made nine internal symbols private, named the remaining scoring thresholds, and added unit tests for eleven previously untested logic modules. A third pass ran the four simplification angles across every file after the review agents failed repeatedly: shared the absolute-URL rule, the JSON-LD node scan, routed-target resolution, and the per-worker progress emitter that had each been written twice; centralized the remaining SSE phase names and scoring thresholds; and collected page anchors once instead of three times per analysis. Added coverage measurement and an end-to-end suite: installed a version-matched coverage provider, scoped it to code that holds logic, and closed the one real gap it exposed by testing the standalone skill runner, which had no coverage at all. Added Playwright with six specs covering the empty state, the missing-key guard, token streaming, report rendering, server-error recovery, and proof that the stored settings record never contains the API key. 257 tests, typecheck, and the production build pass; measured coverage is 75% of statements overall and 93% across the logic-bearing library modules. | Pending local work |
 | 2026-08-31 | Reconciled all 49 retained project commits with the repository summary. Removed the installed Next.js package's nested agent-instruction file; the version-specific guidance remains above and root AGENTS.md governs development. No runtime or release-number change. | This documentation commit |
 | 2026-08-31 | Added and categorized the source-backed architecture inventory, then separated each technology/concept into its own row and mapped README sections for Project Control. Documentation only; no runtime, dependency, or deployment change. | `7bcc353`, `d2ccc14` |
 | 2026-08-29 | Documented evidenced scoring and team-page contacts, corrected the composite-score/BANT/MEDDIC distinction, and added the source-layout table. Disabled Next.js-generated agent-rule files while keeping its version-specific development guidance in the README. | `ceb62e8`, `ad4d81f`, `44dfe85` |
