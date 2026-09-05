@@ -65,10 +65,7 @@ export function loadSettings(storage: Storage): Settings {
   }
   const storedKey = storage.getItem(API_KEY_STORAGE_KEY);
   if (storedKey !== null) return { ...settings, apiKey: storedKey };
-  if (settings.apiKey) {
-    storage.setItem(API_KEY_STORAGE_KEY, settings.apiKey);
-    saveSettings(storage, settings);
-  }
+  if (settings.apiKey) saveSettings(storage, settings);
   return settings;
 }
 

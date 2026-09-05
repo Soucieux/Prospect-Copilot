@@ -34,9 +34,10 @@ const LOCAL_CALLER = "local";
 const callerWindows = new Map<string, { count: number; resetAt: number }>();
 
 /**
- * Identify the caller by its first forwarded address.
+ * Identify the caller by its first forwarded address, falling back to the
+ * proxy's real-client header before treating the caller as local.
  * @param headers the incoming request headers
- * @returns the caller key, or a shared local key when none is forwarded
+ * @returns the caller key, or a shared local key when neither header is set
  */
 export function callerKey(headers: Headers): string {
   const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
