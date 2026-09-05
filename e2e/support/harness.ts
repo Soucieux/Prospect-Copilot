@@ -1,11 +1,12 @@
 import { expect, type Page } from "@playwright/test";
+import {
+  ACTIVE_CONVERSATION_STORAGE_KEY as ACTIVE_CONVERSATION_KEY,
+  API_KEY_STORAGE_KEY as API_KEY_KEY,
+  SETTINGS_STORAGE_KEY as SETTINGS_KEY,
+} from "@/lib/constants";
 
-/** localStorage record holding the shareable settings, never the API key. */
-export const SETTINGS_KEY = "prospect-copilot:settings";
-/** localStorage record holding the API key on its own. */
-export const API_KEY_KEY = "prospect-copilot:api-key";
-/** localStorage record naming the conversation to restore on load. */
-export const ACTIVE_CONVERSATION_KEY = "prospect-copilot:active-conversation";
+export { ACTIVE_CONVERSATION_KEY, API_KEY_KEY, SETTINGS_KEY };
+
 /** Placeholder credential; no spec ever reaches a real provider. */
 export const API_KEY = "sk-e2e-test-key";
 

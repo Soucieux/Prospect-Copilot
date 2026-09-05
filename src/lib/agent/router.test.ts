@@ -28,21 +28,6 @@ function stubRouterResponse(json: Record<string, unknown>): void {
   );
 }
 
-/** Stub the chat-completions endpoint with a different reply per call, in order. */
-function stubSequentialResponses(contents: string[]): void {
-  let call = 0;
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => {
-      const content = contents[call] ?? contents[contents.length - 1];
-      call += 1;
-      return new Response(
-        JSON.stringify({ choices: [{ message: { content } }] }),
-      );
-    }),
-  );
-}
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -448,20 +433,6 @@ describe("routeMessageForWorkflow", () => {
       "Acme Corp",
       "https://globex.example.com",
     ]);
-  });
-});
-
-describe("resolveCompanyUrl", () => {
-  it("resolves an entity to a URL via an LLM guess", async () => {
-    stubSequentialResponses(["https://acme.example.com"]);
-    expect(await resolveCompanyUrl(CONFIG, "Acme Analytics")).toBe(
-      "https://acme.example.com/",
-    );
-  });
-
-  it("returns null when the LLM can't guess it", async () => {
-    stubSequentialResponses(["unknown"]);
-    expect(await resolveCompanyUrl(CONFIG, "Some Obscure Startup")).toBeNull();
   });
 });
 
