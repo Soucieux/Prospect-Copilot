@@ -97,7 +97,7 @@ Each task: write test (RED) → implement (GREEN) → commit. TDD mandatory.
   shape.
 
 ### Task 6 — Wire into `route.ts`
-- Add a `match` branch: 
+- Add a `match` branch:
   - `sellingContext` missing **and** `candidates` empty/null → emit a single
     `token` nudge asking what they sell (no pipeline run) — same pattern as
     the existing sellingContext-missing nudges, not an `error` event.

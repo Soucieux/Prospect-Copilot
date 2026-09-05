@@ -26,7 +26,7 @@ retry. LangChain's `ChatOpenAI` and structured-output runnables now provide the
 model boundary inside those nodes. LangGraph is not asked to choose the
 workflow autonomously, and no generic LangChain agent controls the process.
 
-The migration has three implementation stages:
+The migration has four implementation stages:
 
 1. Harden URL fetching and error classification before graph conversion.
 2. Move the existing behavior into a stateless, per-request LangGraph with

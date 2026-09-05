@@ -1,5 +1,14 @@
 # Prospect Copilot - TypeScript Chat App: Implementation Plan
 
+**Status:** Historical. This is the original v1 plan, kept as a record of the
+decisions the rewrite started from. Several of them were later replaced - the
+provider is DeepSeek rather than GLM, model calls go through LangChain's
+`ChatOpenAI` rather than the `ai` SDK, orchestration moved into LangGraph
+subgraphs, page fetching lives in `src/lib/extract/` rather than an
+`/api/fetch-url` route, and a `match` skill was added. The current
+architecture is described in [`../README.md`](../README.md); read that, not
+this file, for how the app works today.
+
 Rewrite of `zubair-trabzada/ai-sales-team-claude` as a standalone web app: a public chat
 page where a user (bringing their own GLM API key) asks questions and the app auto-invokes
 the sales skills. Source design reference: `docs/ai-sales-team-claude-design.md`.
