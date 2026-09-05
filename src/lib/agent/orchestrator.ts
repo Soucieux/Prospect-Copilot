@@ -31,7 +31,11 @@ import {
   type ProspectComposite,
 } from "@/lib/scoring/lead-scorer";
 import { analyzeProspect } from "@/lib/extract/analyze-prospect";
-import { findContacts, type ContactCandidate } from "@/lib/extract/contact-finder";
+import {
+  findContacts,
+  normalizeName,
+  type ContactCandidate,
+} from "@/lib/extract/contact-finder";
 import { fetchPage, fetchWithVariants } from "@/lib/extract/fetch-page";
 import { htmlToText } from "@/lib/extract/html-to-text";
 import {
@@ -439,7 +443,7 @@ function extractContacts(
   const byName = new Map<string, ContactCandidate>();
   for (const source of sources) {
     for (const person of findContacts(source, companyName)) {
-      const key = person.name.toLowerCase();
+      const key = normalizeName(person.name);
       if (!byName.has(key)) byName.set(key, person);
     }
   }

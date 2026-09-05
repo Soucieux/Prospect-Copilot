@@ -362,10 +362,12 @@ export function classifyBuyingRole(title: string | null): BuyingRole {
 }
 
 /**
- * Lowercase a name for deduplication.
+ * Build the deduplication key for a person's name, so the same person found
+ * on two pages collapses to one contact. Exported because the orchestrator
+ * dedupes across pages with the same key this file uses within one page.
  * @param name the display name
- * @returns normalized key
+ * @returns the name lowercased, with runs of whitespace collapsed and trimmed
  */
-function normalizeName(name: string): string {
+export function normalizeName(name: string): string {
   return name.toLowerCase().replace(/\s+/g, " ").trim();
 }
