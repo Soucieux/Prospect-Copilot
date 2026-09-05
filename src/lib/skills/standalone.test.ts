@@ -55,7 +55,7 @@ function groundingSentToProvider(): string {
   const body = JSON.parse(
     String(vi.mocked(fetch).mock.calls[0]?.[1]?.body),
   ) as { messages: { content: string }[] };
-  return body.messages[1].content;
+  return body.messages[1]?.content ?? "";
 }
 
 /**
@@ -87,8 +87,8 @@ describe("runStandaloneSkill", () => {
     const body = JSON.parse(
       String(vi.mocked(fetch).mock.calls[0]?.[1]?.body),
     ) as { messages: { content: string }[] };
-    expect(body.messages[1].content).toContain("Acme Corp");
-    expect(body.messages[1].content).toContain("Jane Doe");
+    expect(body.messages[1]?.content).toContain("Acme Corp");
+    expect(body.messages[1]?.content).toContain("Jane Doe");
   });
 
   it("appends the selling-context nudge to research only when none was given", async () => {
@@ -130,7 +130,7 @@ describe("runStandaloneSkill", () => {
     const qualifyBody = JSON.parse(
       String(vi.mocked(fetch).mock.calls[0]?.[1]?.body),
     ) as { messages: { content: string }[] };
-    expect(qualifyBody.messages[1].content).toContain("BANT pre-score");
+    expect(qualifyBody.messages[1]?.content).toContain("BANT pre-score");
 
     stubStream("# Contacts");
     await runStandaloneSkill(
@@ -143,7 +143,7 @@ describe("runStandaloneSkill", () => {
     const contactsBody = JSON.parse(
       String(vi.mocked(fetch).mock.calls[0]?.[1]?.body),
     ) as { messages: { content: string }[] };
-    expect(contactsBody.messages[1].content).not.toContain("BANT pre-score");
+    expect(contactsBody.messages[1]?.content).not.toContain("BANT pre-score");
   });
 
   it("skips discovery for outreach and works from the entity name", async () => {

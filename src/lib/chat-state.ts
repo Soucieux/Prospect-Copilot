@@ -29,9 +29,11 @@ export function updateLastMessageSnapshot(
   snapshot: MessageSnapshot,
   patch: (message: ChatMessage) => ChatMessage,
 ): ChatMessage[] | null {
-  if (snapshot.current.length === 0) return null;
+  const lastIndex = snapshot.current.length - 1;
+  const last = snapshot.current[lastIndex];
+  if (last === undefined) return null;
   const next = [...snapshot.current];
-  next[next.length - 1] = patch(next[next.length - 1]);
+  next[lastIndex] = patch(last);
   snapshot.current = next;
   return next;
 }

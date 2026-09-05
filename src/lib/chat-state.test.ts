@@ -54,7 +54,7 @@ describe("message snapshots", () => {
     const persisted = structuredClone(snapshot.current) as ChatMessage[];
 
     expect(rendered).toBe(snapshot.current);
-    expect(persisted[1].report?.matches?.[0].companyName).toBe(
+    expect(persisted[1]?.report?.matches?.[0]?.companyName).toBe(
       "Example Industries, Inc.",
     );
   });

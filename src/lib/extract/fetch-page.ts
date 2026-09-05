@@ -49,7 +49,7 @@ const ACCEPTED_CONTENT_TYPES = [
   "text/xml",
 ];
 const USER_AGENT =
-  "Mozilla/5.0 (compatible; ProspectCopilot/0.1; +https://github.com) ";
+  "Mozilla/5.0 (compatible; ProspectCopilot/0.1; +https://github.com)";
 
 // A URL may only reach a normal web port. Without this the fetcher would
 // connect to any port on a public host, so distinct failure categories
@@ -95,16 +95,16 @@ function assertAllowedProtocolAndHost(url: URL): void {
  * @throws Error when the URL is malformed or not http(s)
  */
 export function normalizeUrl(raw: string): URL {
-  const explicitProtocol = raw.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/);
+  const explicitProtocol = raw.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/)?.[1];
   if (
     explicitProtocol &&
-    !/^https?:$/i.test(explicitProtocol[1]) &&
+    !/^https?:$/i.test(explicitProtocol) &&
     !raw.startsWith("https://") &&
     !raw.startsWith("http://")
   ) {
     throw new FetchPageError(
       "invalid_url",
-      `Unsupported protocol: ${explicitProtocol[1]}:`,
+      `Unsupported protocol: ${explicitProtocol}:`,
     );
   }
   const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
@@ -220,7 +220,8 @@ export async function resolvePublicAddresses(
       { cause: caught, retryable: temporary },
     );
   }
-  if (records.length === 0 || !records.every((record) => isPublicIp(record.address))) {
+  const allPublic = records.every((record) => isPublicIp(record.address));
+  if (records.length === 0 || !allPublic) {
     throw new FetchPageError(
       "blocked_host",
       `Blocked non-public host: ${hostname}`,
@@ -409,30 +410,23 @@ export function requestPinned(
     const onResponse = (res: IncomingMessage): void => {
       void readPinnedResponse(res).then(resolveOnce, rejectOnce);
     };
+    const options = {
+      hostname: pinnedIp,
+      port,
+      path: `${url.pathname}${url.search}`,
+      method: "GET",
+      headers: {
+        host: url.host,
+        "user-agent": USER_AGENT,
+        accept: "text/html,*/*",
+      },
+      signal,
+    };
+    // TLS needs the real hostname for SNI and certificate matching, since the
+    // connection itself goes to the pinned address rather than to the name.
     const req = isHttps
-      ? httpsRequest(
-          {
-            hostname: pinnedIp,
-            port,
-            path: `${url.pathname}${url.search}`,
-            method: "GET",
-            headers: { host: url.host, "user-agent": USER_AGENT, accept: "text/html,*/*" },
-            servername: url.hostname,
-            signal,
-          },
-          onResponse,
-        )
-      : httpRequest(
-          {
-            hostname: pinnedIp,
-            port,
-            path: `${url.pathname}${url.search}`,
-            method: "GET",
-            headers: { host: url.host, "user-agent": USER_AGENT, accept: "text/html,*/*" },
-            signal,
-          },
-          onResponse,
-        );
+      ? httpsRequest({ ...options, servername: url.hostname }, onResponse)
+      : httpRequest(options, onResponse);
     req.on("error", rejectOnce);
     req.end();
   });
@@ -570,6 +564,7 @@ export async function fetchWithVariants(
   let variantIndex = 0;
   while (attempt < MAX_NETWORK_ATTEMPTS && variantIndex < unique.length) {
     const variant = unique[variantIndex];
+    if (variant === undefined) break;
     attempt += 1;
     signal?.throwIfAborted();
     try {

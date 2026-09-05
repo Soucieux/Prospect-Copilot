@@ -283,7 +283,7 @@ describe("requestPinned", () => {
   it("classifies a refused connection as a retryable transport failure", async () => {
     const port = await serve((_req, res) => res.end());
     await new Promise<void>((resolve) =>
-      openServers.splice(0)[0].close(() => resolve()),
+      openServers.splice(0)[0]?.close(() => resolve()),
     );
     await expect(
       requestPinned(

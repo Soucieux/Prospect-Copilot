@@ -77,11 +77,11 @@ describe("findContacts on real-world team page shapes", () => {
       <p>CEO &amp; Co-Founder</p>
     </div>`);
     expect(contacts).toHaveLength(1);
-    expect(contacts[0].name).toBe("Joel Gascoigne");
-    expect(contacts[0].title).toBe("CEO & Co-Founder");
-    expect(contacts[0].seniority).toBe("C-Suite");
-    expect(contacts[0].buyingRole).toBe("Economic Buyer");
-    expect(contacts[0].linkedin).toBeNull();
+    expect(contacts[0]?.name).toBe("Joel Gascoigne");
+    expect(contacts[0]?.title).toBe("CEO & Co-Founder");
+    expect(contacts[0]?.seniority).toBe("C-Suite");
+    expect(contacts[0]?.buyingRole).toBe("Economic Buyer");
+    expect(contacts[0]?.linkedin).toBeNull();
   });
 
   it("does not weld a name onto an adjacent title inside one anchor", () => {
@@ -89,8 +89,8 @@ describe("findContacts on real-world team page shapes", () => {
       `<a href="https://www.linkedin.com/in/cristinacordova"><span>Cristina Cordova</span><span>COO</span></a>`,
     );
     expect(contacts).toHaveLength(1);
-    expect(contacts[0].name).toBe("Cristina Cordova");
-    expect(contacts[0].title).toBe("COO");
+    expect(contacts[0]?.name).toBe("Cristina Cordova");
+    expect(contacts[0]?.title).toBe("COO");
   });
 
   it("never borrows a title from a different person in a flat container", () => {
@@ -108,15 +108,15 @@ describe("findContacts on real-world team page shapes", () => {
     const contacts = findContacts(
       `<div><a href="https://www.linkedin.com/in/dana">Dana Whitfield</a><span>VP of Sales</span></div>`,
     );
-    expect(contacts[0].title).toBe("VP of Sales");
-    expect(contacts[0].buyingRole).toBe("Champion");
+    expect(contacts[0]?.title).toBe("VP of Sales");
+    expect(contacts[0]?.buyingRole).toBe("Champion");
   });
 
   it("reads a name and title written inline in one line of prose", () => {
     const contacts = findContacts(`<p>Joel Gascoigne, Chief Executive Officer</p>`);
     expect(contacts).toHaveLength(1);
-    expect(contacts[0].name).toBe("Joel Gascoigne");
-    expect(contacts[0].title).toBe("Chief Executive Officer");
+    expect(contacts[0]?.name).toBe("Joel Gascoigne");
+    expect(contacts[0]?.title).toBe("Chief Executive Officer");
   });
 
   it("does not mistake capitalized navigation labels for people", () => {
@@ -165,7 +165,7 @@ describe("findContacts filtering people from other companies", () => {
   it("treats a bare CPO as C-suite rather than an employer name", () => {
     const contacts = findContacts(`<div><h3>Jori Lallo</h3><p>Co-founder, CPO</p></div>`);
     expect(contacts).toHaveLength(1);
-    expect(contacts[0].seniority).toBe("C-Suite");
+    expect(contacts[0]?.seniority).toBe("C-Suite");
   });
 });
 

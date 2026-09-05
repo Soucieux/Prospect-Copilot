@@ -133,10 +133,12 @@ function employerNamedIn(title: string): string | null {
     linked?.index !== undefined &&
     STANDALONE_ROLE_PATTERN.test(title.slice(0, linked.index))
   ) {
-    return linked[1];
+    return linked[1] ?? null;
   }
-  const trailing = title.match(TRAILING_EMPLOYER_PATTERN);
-  if (trailing !== null && !TITLE_PATTERN.test(trailing[1])) return trailing[1];
+  const trailingEmployer = title.match(TRAILING_EMPLOYER_PATTERN)?.[1];
+  if (trailingEmployer && !TITLE_PATTERN.test(trailingEmployer)) {
+    return trailingEmployer;
+  }
   return null;
 }
 
@@ -265,8 +267,8 @@ function splitInlineTitle(
 ): { name: string; title: string } | null {
   const match = text.match(INLINE_TITLE_PATTERN);
   if (match === null) return null;
-  const name = match[1].trim();
-  const title = match[2].trim();
+  const name = match[1]?.trim() ?? "";
+  const title = match[2]?.trim() ?? "";
   if (!looksLikeName(name)) return null;
   if (title.length > MAX_TITLE_LENGTH || !TITLE_PATTERN.test(title)) return null;
   return { name, title };
@@ -311,7 +313,8 @@ function findLinkedin(
           .filter((href) => LINKEDIN_PERSON_PATTERN.test(href)),
       ),
     ];
-    if (hrefs.length === 1) return absoluteUrl(hrefs[0]);
+    const [onlyHref] = hrefs;
+    if (hrefs.length === 1 && onlyHref) return absoluteUrl(onlyHref);
     if (hrefs.length > 1) return null;
   }
   return null;

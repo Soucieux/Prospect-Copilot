@@ -214,10 +214,10 @@ describe("routeMessageForWorkflow", () => {
     const body = JSON.parse(String(init.body)) as {
       messages: { role: string; content: string }[];
     };
-    expect(body.messages[0].content).toContain(
+    expect(body.messages[0]?.content).toContain(
       "never require a fixed\n  sentence template",
     );
-    expect(body.messages[0].content).toContain(
+    expect(body.messages[0]?.content).toContain(
       "A product, service, category, market",
     );
   });
@@ -354,10 +354,10 @@ describe("routeMessageForWorkflow", () => {
     const body = JSON.parse(String(init.body)) as {
       messages: { content: string }[];
     };
-    expect(body.messages[0].content).toContain(
+    expect(body.messages[0]?.content).toContain(
       "latest explicit location\n  overrides earlier locations",
     );
-    expect(body.messages[0].content).toContain(
+    expect(body.messages[0]?.content).toContain(
       'follow-up\n  "What about Montreal?" remains match',
     );
   });
@@ -398,7 +398,7 @@ describe("routeMessageForWorkflow", () => {
     const body = JSON.parse(String(init.body)) as {
       messages: { role: string; content: string }[];
     };
-    expect(body.messages[0].content).toContain('"Where can I buy them?"');
+    expect(body.messages[0]?.content).toContain('"Where can I buy them?"');
     expect(
       body.messages.some((item) =>
         item.content.includes("couvertures en laine"),
