@@ -20,7 +20,6 @@ import {
   formatRuntimeLabel,
   mergeLabelSet,
   responseLanguageContext,
-  type LabelSet,
   type RuntimeLabels,
 } from "@/lib/localization";
 import { runGraphWorkerPool } from "@/lib/graph-worker-pool";
@@ -31,7 +30,32 @@ import {
 } from "@/lib/retry";
 
 /** English defaults for every static label in the match report and cards. */
-export const MATCH_REPORT_LABELS: LabelSet = {
+/**
+ * The copy one match report needs, declared field by field rather than as a
+ * `Record<string, string>`. Every key below is read by name while rendering,
+ * so an absent one would reach `formatRuntimeLabel` as undefined and fail the
+ * report at runtime instead of failing the type check here.
+ */
+export interface MatchReportLabels {
+  titleTemplate: string;
+  titleFallback: string;
+  titleWithLocationTemplate: string;
+  locationTitleTemplate: string;
+  noneScored: string;
+  rankedTemplateSingular: string;
+  rankedTemplatePlural: string;
+  locationLabel: string;
+  foundedLabel: string;
+  fitLabel: string;
+  omittedTemplateSingular: string;
+  omittedTemplatePlural: string;
+  auditPrompt: string;
+  auditHint: string;
+  auditRequestTemplate: string;
+  nudge: string;
+}
+
+export const MATCH_REPORT_LABELS: MatchReportLabels = {
   titleTemplate: "Prospect matches for: {product}",
   titleFallback: "Prospect matches",
   titleWithLocationTemplate: "Prospect matches for: {product} in {location}",
@@ -55,7 +79,7 @@ export const MATCH_REPORT_LABELS: LabelSet = {
 };
 
 /** English report/card copy for buy-direction matches; keys mirror sell mode. */
-const BUY_MATCH_REPORT_LABELS: LabelSet = {
+const BUY_MATCH_REPORT_LABELS: MatchReportLabels = {
   titleTemplate: "Places to buy: {product}",
   titleFallback: "Places to buy",
   titleWithLocationTemplate: "Places to buy: {product} in {location}",
@@ -83,7 +107,7 @@ const BUY_MATCH_REPORT_LABELS: LabelSet = {
  * @param direction whether candidates should buy from or sell to the user
  * @returns the buy-mode label set for "buy", otherwise the sell-mode set
  */
-function reportLabelsFor(direction: MatchDirection): LabelSet {
+function reportLabelsFor(direction: MatchDirection): MatchReportLabels {
   return direction === "buy" ? BUY_MATCH_REPORT_LABELS : MATCH_REPORT_LABELS;
 }
 
@@ -115,13 +139,13 @@ export interface ResolvedCandidate {
 export interface CandidatePool {
   candidates: ResolvedCandidate[];
   urls: string[];
-  labels: LabelSet;
+  labels: MatchReportLabels;
 }
 
 /** Candidate score output retained after the scoring worker fan-in. */
 export interface CandidateScoreBatch {
   scored: CandidateScore[];
-  labels: LabelSet;
+  labels: MatchReportLabels;
 }
 
 /** Final match business result consumed by the workflow report node. */
@@ -240,7 +264,7 @@ async function suggestCandidates(
   matchDirection: MatchDirection = "sell",
   matchLocation: string | null = null,
   signal?: AbortSignal,
-): Promise<{ identifiers: CandidateIdentifier[]; labels: LabelSet }> {
+): Promise<{ identifiers: CandidateIdentifier[]; labels: MatchReportLabels }> {
   const defaultLabels = reportLabelsFor(matchDirection);
   try {
     const parsed = await retryOperation(
@@ -481,7 +505,9 @@ export async function scoreMatchCandidatesStage(
   const scored: CandidateScore[] = [];
   let labels = candidatePool.labels;
   scoredResults.forEach((result, index) => {
-    const url = resolvedCandidates[index].url;
+    const candidate = resolvedCandidates[index];
+    if (candidate === undefined) return;
+    const url = candidate.url;
     if (result) {
       const { labels: translated, ...score } = result;
       if (translated) labels = translated;
@@ -530,7 +556,7 @@ function looksLikeWebAddress(raw: string): boolean {
   const value = raw.trim();
   if (/^https?:\/\//i.test(value)) return true;
   if (!value || /\s/.test(value)) return false;
-  const authority = value.split(/[/?#]/, 1)[0];
+  const [authority = ""] = value.split(/[/?#]/, 1);
   return /[^.。．｡][.。．｡][^.。．｡]/u.test(authority);
 }
 
@@ -582,12 +608,12 @@ export async function quickScoreCandidate(
   url: string,
   requesterMessage: string = "",
   responseLanguage: string = "English",
-  labelsToTranslate?: LabelSet,
+  labelsToTranslate?: MatchReportLabels,
   nameHint: string | null = null,
   matchDirection: MatchDirection = "sell",
   matchLocation: string | null = null,
   signal?: AbortSignal,
-): Promise<(CandidateScore & { labels?: LabelSet }) | null> {
+): Promise<(CandidateScore & { labels?: MatchReportLabels }) | null> {
   try {
     const page = await fetchWithVariants(url, signal);
     const extraction = analyzeProspect(page.html, page.url);

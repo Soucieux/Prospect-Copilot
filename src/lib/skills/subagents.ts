@@ -3,6 +3,7 @@
  * Each definition pairs its system prompt with the category it scores.
  */
 
+import type { SubagentResult } from "@/lib/agent/schemas";
 import type { CategoryScores } from "@/lib/scoring/lead-scorer";
 import {
   NOT_PUBLICLY_AVAILABLE,
@@ -179,4 +180,26 @@ export function subagentUserMessage(
 
 DISCOVERY BRIEFING:
 ${briefingJson}`;
+}
+
+/** One subagent paired with the settled outcome of its own run. */
+export interface SubagentOutcome {
+  definition: SubagentDefinition;
+  settled: PromiseSettledResult<SubagentResult>;
+}
+
+/**
+ * Pair each subagent with its own settled result. The two arrays are produced
+ * together but correlated only by position, so the pairing is established once
+ * here rather than re-derived, and re-trusted, at each place that reads them.
+ * @param results settled subagent outcomes, in SUBAGENTS order
+ * @returns one entry per subagent that produced an outcome
+ */
+export function subagentOutcomes(
+  results: PromiseSettledResult<SubagentResult>[],
+): SubagentOutcome[] {
+  return SUBAGENTS.flatMap((definition, index) => {
+    const settled = results[index];
+    return settled === undefined ? [] : [{ definition, settled }];
+  });
 }

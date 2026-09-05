@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  MATCH_REPORT_LABELS,
   quickScoreCandidate,
   resolveCandidates,
   resolveMatchCandidatesStage,
@@ -319,10 +320,10 @@ describe("resolveCandidates", () => {
     const suggestionBody = JSON.parse(String(suggestionCall?.[1]?.body)) as {
       messages: { content: string }[];
     };
-    expect(suggestionBody.messages[1].content).toContain(
+    expect(suggestionBody.messages[1]?.content).toContain(
       "DETECTED RESPONSE LANGUAGE: Japanese",
     );
-    expect(suggestionBody.messages[1].content).toContain(
+    expect(suggestionBody.messages[1]?.content).toContain(
       "どの会社を対象にすべきですか？",
     );
   });
@@ -372,13 +373,13 @@ describe("resolveCandidates", () => {
       "Québec",
     );
     const call = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(call[1]?.body)) as {
+    const body = JSON.parse(String(call?.[1]?.body)) as {
       messages: { content: string }[];
     };
-    expect(body.messages[0].content).toContain(
+    expect(body.messages[0]?.content).toContain(
       "REQUESTED LOCATION, it is a hard discovery",
     );
-    expect(body.messages[1].content).toContain(
+    expect(body.messages[1]?.content).toContain(
       "REQUESTED LOCATION: Québec",
     );
   });
@@ -395,15 +396,15 @@ describe("resolveCandidates", () => {
       "多伦多",
     );
     const call = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(call[1]?.body)) as {
+    const body = JSON.parse(String(call?.[1]?.body)) as {
       messages: { content: string }[];
     };
-    expect(body.messages[0].content).toContain(
+    expect(body.messages[0]?.content).toContain(
       "for buy,\nsuggest plausible sellers",
     );
-    expect(body.messages[1].content).toContain("MATCH DIRECTION: buy");
-    expect(body.messages[1].content).toContain("PRODUCT CONTEXT: 羊毛毯");
-    expect(body.messages[1].content).toContain("REQUESTED LOCATION: 多伦多");
+    expect(body.messages[1]?.content).toContain("MATCH DIRECTION: buy");
+    expect(body.messages[1]?.content).toContain("PRODUCT CONTEXT: 羊毛毯");
+    expect(body.messages[1]?.content).toContain("REQUESTED LOCATION: 多伦多");
   });
 
   it("retains language-based market inference when no location is supplied", async () => {
@@ -416,13 +417,13 @@ describe("resolveCandidates", () => {
       "Italian",
     );
     const call = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(call[1]?.body)) as {
+    const body = JSON.parse(String(call?.[1]?.body)) as {
       messages: { content: string }[];
     };
-    expect(body.messages[0].content).toContain(
+    expect(body.messages[0]?.content).toContain(
       "only when REQUESTED LOCATION is absent",
     );
-    expect(body.messages[1].content).toContain(
+    expect(body.messages[1]?.content).toContain(
       "REQUESTED LOCATION: not specified",
     );
   });
@@ -549,13 +550,13 @@ describe("quickScoreCandidate", () => {
       "Italian",
     );
     const call = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(call[1]?.body)) as {
+    const body = JSON.parse(String(call?.[1]?.body)) as {
       messages: { content: string }[];
     };
-    expect(body.messages[1].content).toContain(
+    expect(body.messages[1]?.content).toContain(
       "DETECTED RESPONSE LANGUAGE: Italian",
     );
-    expect(body.messages[1].content).toContain(
+    expect(body.messages[1]?.content).toContain(
       "quali aziende dovremmo contattare?",
     );
   });
@@ -564,10 +565,10 @@ describe("quickScoreCandidate", () => {
     stubNetwork({});
     await quickScoreCandidate(CONFIG, "payroll software", "https://acme.example.com");
     const call = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(call[1]?.body)) as {
+    const body = JSON.parse(String(call?.[1]?.body)) as {
       messages: { content: string }[];
     };
-    expect(body.messages[1].content).toContain(
+    expect(body.messages[1]?.content).toContain(
       "DETECTED RESPONSE LANGUAGE: English",
     );
   });
@@ -586,13 +587,13 @@ describe("quickScoreCandidate", () => {
       "多伦多",
     );
     const call = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(call[1]?.body)) as {
+    const body = JSON.parse(String(call?.[1]?.body)) as {
       messages: { content: string }[];
     };
-    expect(body.messages[1].content).toContain("MATCH DIRECTION: buy");
-    expect(body.messages[1].content).toContain("WHAT WE WANT TO BUY: 羊毛毯");
-    expect(body.messages[1].content).toContain("REQUESTED LOCATION: 多伦多");
-    expect(body.messages[0].content).toContain(
+    expect(body.messages[1]?.content).toContain("MATCH DIRECTION: buy");
+    expect(body.messages[1]?.content).toContain("WHAT WE WANT TO BUY: 羊毛毯");
+    expect(body.messages[1]?.content).toContain("REQUESTED LOCATION: 多伦多");
+    expect(body.messages[0]?.content).toContain(
       "sells, ships, delivers, or serves that location",
     );
   });
@@ -611,12 +612,12 @@ describe("quickScoreCandidate", () => {
       "Québec",
     );
     const call = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(call[1]?.body)) as {
+    const body = JSON.parse(String(call?.[1]?.body)) as {
       messages: { content: string }[];
     };
-    expect(body.messages[1].content).toContain("MATCH DIRECTION: sell");
-    expect(body.messages[1].content).toContain("REQUESTED LOCATION: Québec");
-    expect(body.messages[0].content).toContain(
+    expect(body.messages[1]?.content).toContain("MATCH DIRECTION: sell");
+    expect(body.messages[1]?.content).toContain("REQUESTED LOCATION: Québec");
+    expect(body.messages[0]?.content).toContain(
       "operates, purchases, or has a",
     );
   });
@@ -644,9 +645,9 @@ describe("quickScoreCandidate", () => {
       "https://acme.example.com",
       "",
       "French",
-      { foundedLabel: "Founded", fitLabel: "Fit", locationLabel: "Location" },
+    MATCH_REPORT_LABELS,
     );
-    expect(result?.labels).toEqual({
+  expect(result?.labels).toMatchObject({
       foundedLabel: "Fondée",
       fitLabel: "Fit",
       locationLabel: "Location",
@@ -920,9 +921,9 @@ describe("match stage composition", () => {
       {
         candidates: [{ url: "https://ikea.example.com", nameHint: "IKEA" }],
         urls: ["https://ikea.example.com"],
-        labels: {},
+      labels: MATCH_REPORT_LABELS,
       },
-      { scored: [], labels: {} },
+    { scored: [], labels: MATCH_REPORT_LABELS },
       "羊毛毯",
       ["IKEA"],
       () => {},
@@ -973,7 +974,7 @@ describe("match stage composition", () => {
     );
     expect(result.title).toBe("在 多伦多 购买：羊毛毯");
     expect(result.matches).toHaveLength(1);
-    expect(result.matches[0].companyName).toBe("IKEA");
+    expect(result.matches[0]?.companyName).toBe("IKEA");
     expect(result.markdown).toContain("https://ikea.example.com");
     expect(result.cardLabels.fit).toBe("购买匹配度");
     expect(result.cardLabels.auditRequestTemplate).toContain("{url}");

@@ -10,13 +10,13 @@ import { WORKFLOW_PHASE } from "@/lib/workflow/constants";
 import {
   MATCH_REPORT_LABELS,
   type CandidatePool,
+  type MatchReportLabels,
   type CandidateScore,
   type CandidateScoreBatch,
   type MatchSkillResult,
 } from "@/lib/skills/match";
 import {
   formatRuntimeLabel,
-  type LabelSet,
   type RuntimeLabels,
 } from "@/lib/localization";
 
@@ -50,7 +50,7 @@ export function renderMatchReport(
   sellingContext: string | null,
   ranked: CandidateScore[],
   totalConsidered: number,
-  labels: LabelSet = MATCH_REPORT_LABELS,
+  labels: MatchReportLabels = MATCH_REPORT_LABELS,
   matchLocation: string | null = null,
 ): { markdown: string; title: string; matches: CandidateScore[] } {
   const title = matchLocation

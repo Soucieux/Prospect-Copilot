@@ -7,7 +7,7 @@
 import { NOT_PUBLICLY_AVAILABLE } from "@/lib/constants";
 import type { SubagentResult, SynthesisResult } from "@/lib/agent/schemas";
 import type { DiscoveryBriefing } from "@/lib/agent/orchestrator";
-import { SUBAGENTS } from "@/lib/skills/subagents";
+import { SUBAGENTS, subagentOutcomes } from "@/lib/skills/subagents";
 import {
   CATEGORY_LABELS,
   type MeddicResult,
@@ -20,7 +20,7 @@ import {
   localizedAgentName,
   localizedCategoryName,
   localizedConfidence,
-  type LabelSet,
+  mergeLabelSet,
   type RuntimeLabels,
 } from "@/lib/localization";
 
@@ -34,7 +34,79 @@ const MAX_CONTACTS_IN_REPORT = 10;
  * `RuntimeLabels`, and translating them twice let the markdown table and the
  * scorecard disagree about the same term.
  */
-export const PROSPECT_REPORT_LABELS: LabelSet = {
+/**
+ * Every label the prospect report renders, declared by name rather than left
+ * as a `Record<string, string>`. Each one is read by key while building the
+ * document, so an absent label would reach the page as the literal text
+ * "undefined" instead of failing the type check here. The index signature
+ * covers only the seniority and buying-role labels, which are looked up by
+ * composed key and already fall back to their English value.
+ */
+export interface ProspectReportLabels {
+  [key: string]: string;
+  reportTitleTemplate: string;
+  urlLabel: string;
+  dateLabel: string;
+  scoreLabel: string;
+  gradeLabel: string;
+  confidenceLabel: string;
+  scoreBreakdown: string;
+  categoryCol: string;
+  scoreCol: string;
+  weightCol: string;
+  totalRow: string;
+  bantSignals: string;
+  dimensionCol: string;
+  evidenceCol: string;
+  meddicSignals: string;
+  elementCol: string;
+  knownCol: string;
+  missingCol: string;
+  notAssessedCol: string;
+  meddicCompleteTemplate: string;
+  meddicNotAssessedNote: string;
+  meddicMetrics: string;
+  meddicEconomicBuyer: string;
+  meddicDecisionCriteria: string;
+  meddicDecisionProcess: string;
+  meddicIdentifyPain: string;
+  meddicChampion: string;
+  executiveSummary: string;
+  actionPlan: string;
+  immediate: string;
+  shortTerm: string;
+  longTerm: string;
+  readyEmail: string;
+  toLabel: string;
+  subjectALabel: string;
+  subjectBLabel: string;
+  ctaLabel: string;
+  decisionMakerMap: string;
+  nameCol: string;
+  titleCol: string;
+  seniorityCol: string;
+  buyingRoleCol: string;
+  linkedinCol: string;
+  notAvailable: string;
+  sen_CSuite: string;
+  sen_VP: string;
+  sen_Director: string;
+  sen_Manager: string;
+  sen_IC: string;
+  role_EconomicBuyer: string;
+  role_Champion: string;
+  role_TechnicalEvaluator: string;
+  role_EndUser: string;
+  role_Unknown: string;
+  claimCol: string;
+  recommendationLabel: string;
+  analysisUnavailableTemplate: string;
+  degradedNoteTemplate: string;
+  sellPrompt: string;
+  footer: string;
+}
+
+export const PROSPECT_REPORT_LABELS: ProspectReportLabels = {
   reportTitleTemplate: "Prospect Analysis: {company}",
   urlLabel: "URL",
   dateLabel: "Date",
@@ -124,9 +196,8 @@ export function assembleLocalizedFallbackReport(
     }),
     "",
   ];
-  SUBAGENTS.forEach((definition, index) => {
+  subagentOutcomes(results).forEach(({ definition, settled }) => {
     const agent = localizedAgentName(runtimeLabels, definition.name);
-    const settled = results[index];
     lines.push(`## ${agent}`, "");
     if (settled.status === "fulfilled") {
       lines.push(settled.value.summary, "");
@@ -162,7 +233,7 @@ const MEDDIC_LABEL_KEYS: Record<string, string> = {
  * @returns the translated name, or the English name when untranslated
  */
 function meddicElementLabel(
-  labels: LabelSet,
+  labels: ProspectReportLabels,
   code: string,
   englishName: string,
 ): string {
@@ -194,7 +265,11 @@ export function assembleReport(
   runtimeLabels: RuntimeLabels = RUNTIME_LABEL_DEFAULTS,
   meddic?: MeddicResult,
 ): string {
-  const labels = synthesis.labels ?? PROSPECT_REPORT_LABELS;
+  // Merged rather than trusted: the synthesis labels arrive as an untyped
+  // record, so completing them here guarantees every key the report reads.
+  const labels: ProspectReportLabels = synthesis.labels
+    ? mergeLabelSet(PROSPECT_REPORT_LABELS, synthesis.labels)
+    : PROSPECT_REPORT_LABELS;
   const categoryDisplayName = (englishName: string): string =>
     localizedCategoryName(runtimeLabels, englishName);
   const subagentLabel = (definition: (typeof SUBAGENTS)[number]): string =>
@@ -317,8 +392,7 @@ export function assembleReport(
     }
     lines.push("", "---", "");
   }
-  SUBAGENTS.forEach((definition, index) => {
-    const settled = results[index];
+  subagentOutcomes(results).forEach(({ definition, settled }) => {
     lines.push(`## ${subagentLabel(definition)} (${Math.round(definition.weight * 100)}%)`, "");
     if (settled.status === "fulfilled") {
       lines.push(

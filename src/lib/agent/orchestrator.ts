@@ -20,6 +20,7 @@ import {
 import {
   SUBAGENTS,
   subagentUserMessage,
+  subagentOutcomes,
 } from "@/lib/skills/subagents";
 import {
   computeProspectScore,
@@ -245,8 +246,7 @@ export function scoreProspectBriefing(
 ): ProspectScoreState {
   const scores: CategoryScores = {};
   let discoverySignals: SubagentResult["discoverySignals"];
-  for (const [index, settled] of results.entries()) {
-    const definition = SUBAGENTS[index];
+  for (const { definition, settled } of subagentOutcomes(results)) {
     if (settled.status === "fulfilled") {
       scores[definition.category] = settled.value.score;
       if (settled.value.discoverySignals) {
@@ -546,14 +546,15 @@ async function runSynthesis(
   responseLanguage: string,
   signal?: AbortSignal,
 ): Promise<SynthesisResult> {
-  const agentSummaries = SUBAGENTS.map((definition, index) => {
-    const settled = results[index];
-    const body =
-      settled.status === "fulfilled"
-        ? `score ${settled.value.score}/100 - ${settled.value.summary} recommendation: ${settled.value.recommendation}`
-        : "analysis unavailable - neutral score assigned";
-    return `${definition.name}: ${body}`;
-  }).join("\n");
+  const agentSummaries = subagentOutcomes(results)
+    .map(({ definition, settled }) => {
+      const body =
+        settled.status === "fulfilled"
+          ? `score ${settled.value.score}/100 - ${settled.value.summary} recommendation: ${settled.value.recommendation}`
+          : "analysis unavailable - neutral score assigned";
+      return `${definition.name}: ${body}`;
+    })
+    .join("\n");
   const topContact = briefing.contacts[0];
   const messages: LlmMessage[] = [
     {
