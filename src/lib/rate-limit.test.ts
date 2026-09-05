@@ -11,6 +11,27 @@ describe("callerKey", () => {
     expect(callerKey(headers)).toBe("203.0.113.7");
   });
 
+  it("falls back to x-real-ip when nothing was forwarded", () => {
+    const headers = new Headers({ "x-real-ip": " 198.51.100.4 " });
+    expect(callerKey(headers)).toBe("198.51.100.4");
+  });
+
+  it("prefers a forwarded address over x-real-ip", () => {
+    const headers = new Headers({
+      "x-forwarded-for": "203.0.113.7",
+      "x-real-ip": "198.51.100.4",
+    });
+    expect(callerKey(headers)).toBe("203.0.113.7");
+  });
+
+  it("skips an empty forwarded address rather than keying on it", () => {
+    const headers = new Headers({
+      "x-forwarded-for": "  ",
+      "x-real-ip": "198.51.100.4",
+    });
+    expect(callerKey(headers)).toBe("198.51.100.4");
+  });
+
   it("falls back to a shared local key when nothing is forwarded", () => {
     expect(callerKey(new Headers())).toBe("local");
   });
