@@ -31,10 +31,6 @@ export function delayWithSignal(
       reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
     };
     signal?.addEventListener("abort", onAbort, { once: true });
-    if (signal?.aborted) {
-      onAbort();
-      return;
-    }
     timer = setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
       resolve();

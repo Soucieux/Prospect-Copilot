@@ -15,7 +15,6 @@ export interface ProspectExtraction {
   techStack: string[];
   socialProfiles: string[];
   emails: string[];
-  phones: string[];
   hasPricingPage: boolean;
   pricingPageUrl: string | null;
   enterpriseTierListed: boolean;
@@ -57,12 +56,10 @@ const SOCIAL_PATTERNS: { platform: string; pattern: RegExp }[] = [
 ];
 
 const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-const PHONE_PATTERN = /(?:\+?\d{1,3}[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g;
 const PRICING_HREF_PATTERN = /pricing|plans|packages/i;
 const ENTERPRISE_PATTERN = /enterprise|custom pricing|contact (us|sales) for/i;
 
 const MAX_SOCIAL_PROFILES = 8;
-const MAX_PHONES = 5;
 const MAX_EMAILS = 20;
 // These links are only ever scanned for the six subpage patterns, never sent
 // to a model, so the budget is generous: a large navigation can otherwise use
@@ -91,7 +88,7 @@ export function analyzeProspect(
     companyName:
       jsonLdOrg?.name ??
       $('meta[property="og:site_name"]').attr("content") ??
-        null,
+      null,
     title: $("title").text().trim() || null,
     description:
       $('meta[name="description"]').attr("content")?.trim() ?? null,
@@ -100,7 +97,6 @@ export function analyzeProspect(
     emails: uniqueMatches(html, EMAIL_PATTERN)
       .filter((email) => !/\.(png|jpe?g|gif|svg|webp)$/i.test(email))
       .slice(0, MAX_EMAILS),
-    phones: uniqueMatches(html, PHONE_PATTERN).slice(0, MAX_PHONES),
     hasPricingPage: pricingPageUrl !== null,
     pricingPageUrl,
     enterpriseTierListed: ENTERPRISE_PATTERN.test(html),
@@ -226,7 +222,8 @@ function extractInternalLinks(hrefs: string[], pageUrl: string): string[] {
     try {
       const resolved = new URL(href, pageUrl);
       if (resolved.origin === origin) {
-        found.add(resolved.toString().split("#")[0]);
+        resolved.hash = "";
+        found.add(resolved.toString());
       }
     } catch {
       // Unparseable hrefs are skipped.
