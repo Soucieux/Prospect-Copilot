@@ -29,7 +29,6 @@ import {
   retryOperation,
 } from "@/lib/retry";
 
-/** English defaults for every static label in the match report and cards. */
 /**
  * The copy one match report needs, declared field by field rather than as a
  * `Record<string, string>`. Every key below is read by name while rendering,
@@ -55,6 +54,7 @@ export interface MatchReportLabels {
   nudge: string;
 }
 
+/** English defaults for every static label in the match report and cards. */
 export const MATCH_REPORT_LABELS: MatchReportLabels = {
   titleTemplate: "Prospect matches for: {product}",
   titleFallback: "Prospect matches",

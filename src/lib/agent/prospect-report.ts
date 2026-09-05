@@ -28,13 +28,6 @@ import {
 const MAX_CONTACTS_IN_REPORT = 10;
 
 /**
- * English defaults for the report-specific labels the synthesis call
- * translates. Score categories, subagent names, and confidence values are
- * deliberately absent: the router already translates those into
- * `RuntimeLabels`, and translating them twice let the markdown table and the
- * scorecard disagree about the same term.
- */
-/**
  * Every label the prospect report renders, declared by name rather than left
  * as a `Record<string, string>`. Each one is read by key while building the
  * document, so an absent label would reach the page as the literal text
@@ -106,6 +99,13 @@ export interface ProspectReportLabels {
   footer: string;
 }
 
+/**
+ * English defaults for the report-specific labels the synthesis call
+ * translates. Score categories, subagent names, and confidence values are
+ * deliberately absent: the router already translates those into
+ * `RuntimeLabels`, and translating them twice let the markdown table and the
+ * scorecard disagree about the same term.
+ */
 export const PROSPECT_REPORT_LABELS: ProspectReportLabels = {
   reportTitleTemplate: "Prospect Analysis: {company}",
   urlLabel: "URL",
