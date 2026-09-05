@@ -645,16 +645,15 @@ describe("quickScoreCandidate", () => {
       "https://acme.example.com",
       "",
       "French",
-    MATCH_REPORT_LABELS,
+      MATCH_REPORT_LABELS,
     );
-  expect(result?.labels).toMatchObject({
+    expect(result?.labels).toMatchObject({
       foundedLabel: "Fondée",
       fitLabel: "Fit",
       locationLabel: "Location",
     });
   });
 });
-
 
 /**
  * Compose the three match stages exactly as the workflow subgraph does, so
@@ -921,9 +920,9 @@ describe("match stage composition", () => {
       {
         candidates: [{ url: "https://ikea.example.com", nameHint: "IKEA" }],
         urls: ["https://ikea.example.com"],
-      labels: MATCH_REPORT_LABELS,
+        labels: MATCH_REPORT_LABELS,
       },
-    { scored: [], labels: MATCH_REPORT_LABELS },
+      { scored: [], labels: MATCH_REPORT_LABELS },
       "羊毛毯",
       ["IKEA"],
       () => {},

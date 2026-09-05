@@ -319,120 +319,120 @@ export default function Home() {
       ) : null}
 
       <div className="app-main">
-      <header className="mobile-header">
-        <button
-          className="mobile-menu-button"
-          aria-label="Open conversation menu"
-          aria-controls="conversation-sidebar"
-          aria-expanded={isSidebarOpen}
-          onClick={() => setIsSidebarOpen((open) => !open)}
-        >
-          <span aria-hidden>☰</span>
-        </button>
-        <span>Prospect Copilot</span>
-      </header>
-      {error ? <div className="error-banner">{error}</div> : null}
-
-      {messages.length === 0 ? (
-        <div className="empty-state">
-          <h2 className="empty-greeting">What can I help you sell today?</h2>
-          <p className="empty-sub">
-            Ask anything, or pick a sales skill - I&apos;ll route it
-            automatically.
-          </p>
-          <div className="suggestions">
-            {SUGGESTIONS.map((suggestion) => (
-              <button
-                key={suggestion.title}
-                className="suggestion"
-                onClick={() => setInput(suggestion.example)}
-              >
-                <span className="suggestion-title">{suggestion.title}</span>
-                <span className="suggestion-example">{suggestion.example}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="chat-log" ref={logRef}>
-          <div className="chat-log-inner">
-            {messages.map((message, index) => (
-              <div key={index} className={`message ${message.role}`}>
-                {message.role === "assistant" ? (
-                  <>
-                    <div className="assistant-label">
-                      <span className="assistant-avatar" aria-hidden>AI</span>
-                      Prospect Copilot
-                    </div>
-                    {message.progress && message.progress.length > 0 ? (
-                      <ProgressPanel events={message.progress} />
-                    ) : null}
-                    {message.report ? (
-                      <Scorecard report={message.report} />
-                    ) : null}
-                    {message.report?.kind === "match" &&
-                    message.report.matches &&
-                    message.report.matches.length > 0 ? (
-                      <MatchCandidateCards
-                        candidates={message.report.matches}
-                        labels={message.report.matchLabels ?? DEFAULT_MATCH_CARD_LABELS}
-                        disabled={isStreaming}
-                        onSelect={(_candidate, requestText) =>
-                          void send(requestText)
-                        }
-                      />
-                    ) : (
-                      <ReportDocument
-                        markdown={
-                          message.report
-                            ? message.report.markdown
-                            : message.content
-                        }
-                      />
-                    )}
-                    {isStreaming && index === messages.length - 1 ? (
-                      <span className="streaming-cursor" aria-hidden />
-                    ) : null}
-                  </>
-                ) : (
-                  message.content
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="composer">
-        <div className="composer-inner">
-          <input
-            className="chat-input"
-            placeholder="Try: analyze https://stripe.com as a prospect"
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void send();
-              }
-            }}
-            disabled={isStreaming}
-          />
+        <header className="mobile-header">
           <button
-            className={`send-button ${isStreaming ? "stop-button" : ""}`}
-            aria-label={isStreaming ? "Stop processing" : "Send message"}
-            onClick={() =>
-              isStreaming ? stopProcessing() : void send()
-            }
-            disabled={!isStreaming && !input.trim()}
+            className="mobile-menu-button"
+            aria-label="Open conversation menu"
+            aria-controls="conversation-sidebar"
+            aria-expanded={isSidebarOpen}
+            onClick={() => setIsSidebarOpen((open) => !open)}
           >
-            <span aria-hidden>{isStreaming ? "■" : "↑"}</span>
+            <span aria-hidden>☰</span>
           </button>
+          <span>Prospect Copilot</span>
+        </header>
+        {error ? <div className="error-banner">{error}</div> : null}
+
+        {messages.length === 0 ? (
+          <div className="empty-state">
+            <h2 className="empty-greeting">What can I help you sell today?</h2>
+            <p className="empty-sub">
+              Ask anything, or pick a sales skill - I&apos;ll route it
+              automatically.
+            </p>
+            <div className="suggestions">
+              {SUGGESTIONS.map((suggestion) => (
+                <button
+                  key={suggestion.title}
+                  className="suggestion"
+                  onClick={() => setInput(suggestion.example)}
+                >
+                  <span className="suggestion-title">{suggestion.title}</span>
+                  <span className="suggestion-example">{suggestion.example}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="chat-log" ref={logRef}>
+            <div className="chat-log-inner">
+              {messages.map((message, index) => (
+                <div key={index} className={`message ${message.role}`}>
+                  {message.role === "assistant" ? (
+                    <>
+                      <div className="assistant-label">
+                        <span className="assistant-avatar" aria-hidden>AI</span>
+                        Prospect Copilot
+                      </div>
+                      {message.progress && message.progress.length > 0 ? (
+                        <ProgressPanel events={message.progress} />
+                      ) : null}
+                      {message.report ? (
+                        <Scorecard report={message.report} />
+                      ) : null}
+                      {message.report?.kind === "match" &&
+                      message.report.matches &&
+                      message.report.matches.length > 0 ? (
+                        <MatchCandidateCards
+                          candidates={message.report.matches}
+                          labels={message.report.matchLabels ?? DEFAULT_MATCH_CARD_LABELS}
+                          disabled={isStreaming}
+                          onSelect={(_candidate, requestText) =>
+                            void send(requestText)
+                          }
+                        />
+                      ) : (
+                        <ReportDocument
+                          markdown={
+                            message.report
+                              ? message.report.markdown
+                              : message.content
+                          }
+                        />
+                      )}
+                      {isStreaming && index === messages.length - 1 ? (
+                        <span className="streaming-cursor" aria-hidden />
+                      ) : null}
+                    </>
+                  ) : (
+                    message.content
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="composer">
+          <div className="composer-inner">
+            <input
+              className="chat-input"
+              placeholder="Try: analyze https://stripe.com as a prospect"
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void send();
+                }
+              }}
+              disabled={isStreaming}
+            />
+            <button
+              className={`send-button ${isStreaming ? "stop-button" : ""}`}
+              aria-label={isStreaming ? "Stop processing" : "Send message"}
+              onClick={() =>
+                isStreaming ? stopProcessing() : void send()
+              }
+              disabled={!isStreaming && !input.trim()}
+            >
+              <span aria-hidden>{isStreaming ? "■" : "↑"}</span>
+            </button>
+          </div>
+          <p className="composer-hint">
+            Reports may contain public web data - verify before acting on it.
+          </p>
         </div>
-        <p className="composer-hint">
-          Reports may contain public web data - verify before acting on it.
-        </p>
-      </div>
       </div>
 
       {isSettingsOpen ? (

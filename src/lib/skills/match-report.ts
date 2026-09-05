@@ -138,10 +138,7 @@ export function formatMatchSkillResult(
 ): MatchSkillResult {
   let labels = scoreBatch.labels;
   const ranked = rankCandidates(scoreBatch.scored, MATCH_RESULT_LIMIT);
-  if (
-    ranked.length === 0 &&
-    namedCandidates?.length
-  ) {
+  if (ranked.length === 0 && namedCandidates?.length) {
     const reportTitle = formatRuntimeLabel(runtimeLabels.reportTemplate, {
       skill: runtimeLabels.skillMatch,
     });
@@ -156,7 +153,11 @@ export function formatMatchSkillResult(
     };
   }
   if (candidatePool.candidates.length > 0) {
-    emit({ type: "phase", phase: WORKFLOW_PHASE.done, detail: runtimeLabels.matchComplete });
+    emit({
+      type: "phase",
+      phase: WORKFLOW_PHASE.done,
+      detail: runtimeLabels.matchComplete,
+    });
   }
   const cardLabels =
     matchDirection === "buy"
