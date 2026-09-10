@@ -122,9 +122,9 @@ Retries have one owner per operation:
 | Path | Responsibility |
 | --- | --- |
 | `src/app/` | App Router page and the single `/api/chat` streaming endpoint. |
-| `src/lib/workflow/` | <ul><li><strong>Use:</strong> LangGraph graph, shared state, and the prospect, match, standalone, and plain-chat subgraphs.</li></ul> |
-| `src/lib/agent/` | <ul><li><strong>Use:</strong> Intent router, prospect orchestrator, and the Zod schemas every structured model call is validated against.</li></ul> |
-| `src/lib/extract/` | <ul><li><strong>Use:</strong> Secure fetching (SSRF guard), homepage analysis, contact discovery, and HTML-to-text.</li></ul> |
+| `src/lib/workflow/` | LangGraph graph, shared state, and the prospect, match, standalone, and plain-chat subgraphs. |
+| `src/lib/agent/` | Intent router, prospect orchestrator, and the Zod schemas every structured model call is validated against. |
+| `src/lib/extract/` | Secure fetching (SSRF guard), homepage analysis, contact discovery, and HTML-to-text. |
 | `src/lib/scoring/` | Deterministic BANT, MEDDIC, and composite scoring. No I/O and no model calls. |
 | `src/lib/skills/` | The five subagent definitions, the four standalone skills, and the match pipeline. |
 | `src/lib/storage/` | Browser IndexedDB persistence for conversations and reports. |
@@ -133,9 +133,8 @@ Business rules live in `scoring/` and `extract/`, never in a prompt: the model s
 
 ### Finding buyers or sellers for a product
 
-Ask where to sell or where to buy a product and the assistant uses the same match structure in both directions. Sell mode ranks likely customers or buyers;
+Ask where to sell or where to buy a product and the assistant uses the same match structure in both directions. Sell mode ranks likely customers or buyers; buy mode ranks sellers, retailers, distributors, suppliers, and marketplaces.
 
-- buy mode ranks sellers, retailers, distributors, suppliers, and marketplaces.
 - The request can use natural wording in any language, and a follow-up such as "Where can I buy them?" recovers the product from the conversation instead of requiring a fixed prompt format.
 
 - An explicit city, region, or country filters either direction.
@@ -146,9 +145,9 @@ Ask where to sell or where to buy a product and the assistant uses the same matc
 
 | Companies you name | No product mentioned | Product mentioned |
 | --- | --- | --- |
-| **None** | Plain chat | <ul><li><strong>Use:</strong> The LLM suggests candidates, quick-scores up to 12, and returns up to 8 ranked by fit</li></ul> |
+| **None** | Plain chat | The LLM suggests candidates, quick-scores up to 12, and returns up to 8 ranked by fit. |
 | **One** | Full audit (prospect/research/qualify/contacts/outreach, as usual) | Same full audit, now grounded in the product you described |
-| **Two or more** | <ul><li><strong>Use:</strong> Each is quick-scored generically - useful for narrowing a shortlist before you've settled on a pitch</li></ul> | Each is quick-scored against the product, ranked, and up to 8 are shown |
+| **Two or more** | Each is quick-scored generically - useful for narrowing a shortlist before you've settled on a pitch. | Each is quick-scored against the product, ranked, and up to 8 are shown |
 
 - **You only have to mention your product once.** The router scans the whole conversation, not just the latest message, so once you've said what you want to sell or buy it carries that context into later requests automatically - no setting to configure and no need to repeat it.
 - If no product has been mentioned yet, the assistant asks for the missing product before matching.
@@ -158,8 +157,7 @@ Ask where to sell or where to buy a product and the assistant uses the same matc
 - A separate action on each card starts a full review of that company.
 - Discovery mode (naming no companies) asks the same LLM to suggest candidates directly from its own knowledge - there is no separate search API.
 
-- Every suggested company still gets its homepage fetched and scored like any other candidate, so a wrong or outdated guess just means that one gets skipped rather than shown
-- naming a few candidates yourself avoids relying on the model's guesses at all.
+- Every suggested company still gets its homepage fetched and scored like any other candidate, so a wrong or outdated guess just means that one gets skipped rather than shown. Naming a few candidates yourself avoids relying on the model's guesses at all.
 
 ```
 we sell payroll software for mid-market companies, who should we target?
@@ -179,11 +177,11 @@ compare Acme Corp, Globex, and Initech
 
 | Technology or concept | Use in this project |
 |---|---|
-| LangGraph | <ul><li><strong>Use:</strong> Owns typed request state, routing, prospect/match/standalone/chat subgraphs, branches, and bounded retries</li><li><strong>Behavior:</strong> no server-side checkpointer is configured.</li></ul> |
-| LangChain | <ul><li><strong>Use:</strong> Its ChatOpenAI adapter handles approved OpenAI-compatible model calls, streaming, and structured output</li><li><strong>Behavior:</strong> LangChain agents do not control audit stages.</li></ul> |
-| DeepSeek deepseek-chat | <ul><li><strong>Use:</strong> Default hosted language model.</li><li><strong>Behavior:</strong> Users may configure an approved OpenAI-compatible endpoint</li><li><strong>Detail:</strong> their key is supplied per request.</li></ul> |
-| BANT | <ul><li><strong>Use:</strong> A deterministic sales-qualification diagnostic computed from evidenced facts, separate from the composite score.</li></ul> |
-| MEDDIC | <ul><li><strong>Use:</strong> A deterministic evidence-completeness diagnostic</li><li><strong>Behavior:</strong> it does not change the composite prospect score.</li></ul> |
+| LangGraph | Owns typed request state, routing, prospect/match/standalone/chat subgraphs, branches, and bounded retries; no server-side checkpointer is configured. |
+| LangChain | Its ChatOpenAI adapter handles approved OpenAI-compatible model calls, streaming, and structured output. LangChain agents do not control audit stages. |
+| DeepSeek deepseek-chat | Default hosted language model. Users may configure an approved OpenAI-compatible endpoint; their key is supplied per request. |
+| BANT | A deterministic sales-qualification diagnostic computed from evidenced facts, separate from the composite score. |
+| MEDDIC | A deterministic evidence-completeness diagnostic; it does not change the composite prospect score. |
 
 ### Frontend & Presentation
 
@@ -192,7 +190,7 @@ compare Acme Corp, Globex, and Initech
 | React | Builds conversations, report cards, settings, and other interactive UI. |
 | React DOM | Renders React components in the browser. |
 | Next.js | App Router supplies page routing and the server /api/chat endpoint. |
-| TypeScript | <ul><li><strong>Use:</strong> Adds types to frontend code, graph state, evidence processing, and deterministic scoring.</li></ul> |
+| TypeScript | Adds types to frontend code, graph state, evidence processing, and deterministic scoring. |
 | react-markdown | Renders Markdown answers and report content. |
 | remark-gfm | Adds GitHub Flavored Markdown features, including tables, to rendered answers. |
 
@@ -203,31 +201,30 @@ compare Acme Corp, Globex, and Initech
 | Node.js | Runs the Next.js server and local development/build commands. |
 | Zod | Validates structured model outputs before business logic uses them. |
 | Cheerio | Parses fetched company pages into evidence and contact signals. |
-| Bounded concurrency | <ul><li><strong>Use:</strong> Limits candidate resolution and scoring workers</li><li><strong>Behavior:</strong> formatting is a separate graph stage.</li></ul> |
-| Composite scoring | <ul><li><strong>Use:</strong> Combines five prospect analyses using deterministic calculations rather than asking a model to invent a score.</li></ul> |
+| Bounded concurrency | Limits candidate resolution and scoring workers; formatting is a separate graph stage. |
+| Composite scoring | Combines five prospect analyses using deterministic calculations rather than asking a model to invent a score. |
 
 ### Data & Storage
 
 | Technology or concept | Use in this project |
 |---|---|
-| IndexedDB | <ul><li><strong>Use:</strong> Stores conversations and generated reports in the browser</li><li><strong>Behavior:</strong> no server-side conversation database.</li></ul> |
+| IndexedDB | Stores conversations and generated reports in the browser; no server-side conversation database. |
 | idb-keyval | Provides the key-value access layer for IndexedDB persistence. |
-| localStorage | <ul><li><strong>Use:</strong> Retains the user's API settings/key in their browser</li><li><strong>Behavior:</strong> the server does not persist them.</li></ul> |
+| localStorage | Retains the user's API settings/key in their browser; the server does not persist them. |
 
 ### Integrations & Security
 
 | Technology or concept | Use in this project |
 |---|---|
 | Server-sent events (SSE) | Streams progress and results from /api/chat to the browser. |
-| OpenAI-compatible API | <ul><li><strong>Use:</strong> The allowed interface for user-configured hosted model endpoints</li><li><strong>Behavior:</strong> does not imply use of an OpenAI model.</li></ul> |
+| OpenAI-compatible API | The allowed interface for user-configured hosted model endpoints; does not imply use of an OpenAI model. |
 | ipaddr.js | Classifies resolved IP addresses for outbound-request safety checks. |
-| Server-side request forgery (SSRF) protection | <ul><li><strong>Use:</strong> Validates public destinations and redirects before fetching page evidence, with bounded worker pools.</li></ul> |
+| Server-side request forgery (SSRF) protection | Validates public destinations and redirects before fetching page evidence, with bounded worker pools. |
 
 Answers use fetched page evidence; no local embedding model or vector database is maintained.
 
-- Architecture inventory updated on 2026-08-31 from the current source and dependency manifest.
-- Each technology or concept has its own row within a category; descriptions retain its project-specific role.
-- This documentation change does not alter the application runtime or its package version.
+Each row covers one technology or concept within its category and describes that item's
+project-specific role, read from the current source and dependency manifest.
 
 <a id="storage-model"></a>
 <a id="data-handling"></a>
@@ -278,10 +275,7 @@ For source changes, follow the [repository instructions](../AGENTS.md#prospect-c
 <!-- project-control:section=history -->
 ## Change history
 
-
-
-- **Change-history numbering:** Dated history without project-level version or build numbers.
-- Follow the repository [version and build-number policy](../AGENTS.md#version-and-build-number-policy).
+**Change-history numbering:** Dated history without project-level version or build numbers. Follow the repository [version and build-number policy](../AGENTS.md#version-and-build-number-policy).
 
 One record per change; complete details and evidence are below. Older work dates and Git checkpoints remain labelled when they differ.
 
@@ -310,8 +304,6 @@ One record per change; complete details and evidence are below. Older work dates
 
 <a id="readme-organization"></a>
 
-
-
 ### README organization — 2026-09-06
 
 - **Structure:** Put purpose, capabilities, setup, architecture, and workflows before history.
@@ -321,8 +313,6 @@ One record per change; complete details and evidence are below. Older work dates
 
 <a id="change-1"></a>
 <a id="readability-maintenance"></a>
-
-
 
 ### Reorganized long paragraphs and table cells without dropping details
 
@@ -339,8 +329,6 @@ Local documentation changes; initially delivered uncommitted and recorded in thi
 [Back to change history](#change-history)
 
 <a id="change-2"></a>
-
-
 
 ### Moved complete project descriptions, register details, and repository-origin history into this README
 
@@ -360,8 +348,6 @@ Local documentation update; uncommitted
 <a id="readme-detail-1"></a>
 <a id="readme-detail-5"></a>
 <a id="repository-record-1"></a>
-
-
 
 ### Completed a full-sweep exhaustive pass: all 103 project files read start to finish rather than by diff, which reached two defects no earlier pass had
 
@@ -398,8 +384,6 @@ Local documentation update; uncommitted
 <a id="readme-detail-6"></a>
 <a id="repository-record-2"></a>
 
-
-
 ### Turned on strict index checking (noUncheckedIndexedAccess) and resolved the 103 errors it raised, which exposed two defects that reading alone had not
 
 - **Recorded date:** 2026-09-05.
@@ -429,8 +413,6 @@ Local documentation update; uncommitted
 <a id="readme-detail-3"></a>
 <a id="readme-detail-7"></a>
 <a id="repository-record-3"></a>
-
-
 
 ### Made the end-to-end suite actually run and turned coverage from a number into a gate
 
@@ -503,8 +485,6 @@ Coverage now fails the run below per-directory floors, and the project README re
 
 <a id="change-6"></a>
 
-
-
 ### Declared Prospect Copilot's dated-history mode and linked it to the centralized repository policy
 
 - **Recorded date:** 2026-09-02.
@@ -521,8 +501,6 @@ This documentation commit
 <a id="readme-detail-4"></a>
 <a id="readme-detail-8"></a>
 <a id="repository-record-4"></a>
-
-
 
 ### Completed the project's first repository-wide exhaustive pass
 
@@ -549,8 +527,7 @@ Corrected MEDDIC so a distant contract renewal reads as looked-for-and-absent ra
 - centralized the remaining SSE phase names and scoring thresholds; and collected page anchors once instead of three times per analysis.
 - Added coverage measurement and an end-to-end suite: installed a version-matched coverage provider, scoped it to code that holds logic, and closed the one real gap it exposed by testing the standalone skill runner, which had no coverage at all.
 
-- Added Playwright with six specs covering the empty state, the missing-key guard, token streaming, report rendering, server-error recovery, and proof that the stored settings record never contains the API key. 257 tests, typecheck, and the production build pass
-- measured coverage is 75% of statements overall and 93% across the logic-bearing library modules.
+- Added Playwright with six specs covering the empty state, the missing-key guard, token streaming, report rendering, server-error recovery, and proof that the stored settings record never contains the API key. 257 tests, typecheck, and the production build pass; measured coverage is 75% of statements overall and 93% across the logic-bearing library modules.
 
 **Evidence and delivery status**
 
@@ -560,8 +537,6 @@ Corrected MEDDIC so a distant contract renewal reads as looked-for-and-absent ra
 
 <a id="change-8"></a>
 <a id="repository-record-5"></a>
-
-
 
 ### Reconciled all 49 retained project commits with the repository summary
 
@@ -587,8 +562,6 @@ This documentation commit
 <a id="repository-record-6"></a>
 <a id="repository-record-7"></a>
 <a id="repository-record-8"></a>
-
-
 
 ### Added and categorized the source-backed architecture inventory
 
@@ -616,8 +589,6 @@ Historical work record
 <a id="readme-detail-9"></a>
 <a id="repository-record-9"></a>
 
-
-
 ### Documented evidenced scoring and team-page contacts, corrected the composite-score/BANT/MEDDIC distinction, and added the source-layout table
 
 - **Recorded date:** 2026-08-29.
@@ -644,8 +615,6 @@ Historical work record
 <a id="change-11"></a>
 <a id="readme-detail-10"></a>
 <a id="repository-record-10"></a>
-
-
 
 ### Shared label merging
 
@@ -679,8 +648,6 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
 <a id="change-12"></a>
 <a id="readme-detail-11"></a>
 <a id="repository-record-11"></a>
-
-
 
 ### Upgraded the runtime/dependencies and integrated LangChain model adapters and typed LangGraph request/subgraphs
 
@@ -718,8 +685,6 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
 <a id="change-13"></a>
 <a id="readme-detail-12"></a>
 <a id="repository-record-12"></a>
-
-
 
 ### Introduced match schemas, routing, bounded candidate scoring, ranked reports, and selectable company cards
 
@@ -760,8 +725,6 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
 <a id="change-14"></a>
 <a id="readme-detail-13"></a>
 <a id="repository-record-13"></a>
-
-
 
 ### Introduced the standalone BYOK prospect-audit application and four research skills
 
