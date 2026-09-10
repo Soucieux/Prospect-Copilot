@@ -275,7 +275,9 @@ For source changes, follow the [repository instructions](../AGENTS.md#prospect-c
 <!-- project-control:section=history -->
 ## Change history
 
-**Change-history numbering:** Dated history without project-level version or build numbers. Follow the repository [version and build-number policy](../AGENTS.md#version-and-build-number-policy).
+**Change-history numbering:** This project uses dated history and does not assign project-level
+version or build numbers. Follow the repository-wide
+[version and build-number policy](../AGENTS.md#version-and-build-number-policy).
 
 One record per change; complete details and evidence are below. Older work dates and Git checkpoints remain labelled when they differ.
 
@@ -283,21 +285,21 @@ One record per change; complete details and evidence are below. Older work dates
 
 | Record | Date | Highlights | Details |
 |---|---|---|---|
-| README organization | 2026-09-06 | <ul><li><strong>Structure:</strong> User guide first; one history table.</li><li><strong>Rules:</strong> Scoped contributor guidance under AGENTS.</li></ul> | [Full record](#readme-organization) |
-| Dated change | 2026-09-06 | <ul><li><strong>Change:</strong> Reorganized long paragraphs and table cells without dropping details.</li></ul> | [Full record](#change-1) |
-| Dated change | 2026-09-06 | <ul><li><strong>Change:</strong> Moved complete project descriptions, register details, and repository-origin history into this README.</li></ul> | [Full record](#change-2) |
-| Dated change | 2026-09-05 | <ul><li><strong>Change:</strong> Completed a full-sweep exhaustive pass: all 103 project files read start to finish rather than by diff, which reached two defects no earlier pass had.</li></ul> | [Full record](#change-3) |
-| Dated change | 2026-09-05 | <ul><li><strong>Change:</strong> Turned on strict index checking (noUncheckedIndexedAccess) and resolved the 103 errors it raised, which exposed two defects that reading alone had not.</li></ul> | [Full record](#change-4) |
-| Dated change | 2026-09-04 | <ul><li><strong>Change:</strong> Made the end-to-end suite actually run and turned coverage from a number into a gate.</li></ul> | [Full record](#change-5) |
-| Dated change | 2026-09-02 | <ul><li><strong>Change:</strong> Declared Prospect Copilot's dated-history mode and linked it to the centralized repository policy.</li></ul> | [Full record](#change-6) |
-| Dated change | 2026-09-02 | <ul><li><strong>Change:</strong> Completed the project's first repository-wide exhaustive pass.</li></ul> | [Full record](#change-7) |
-| Dated change | 2026-08-31 | <ul><li><strong>Change:</strong> Reconciled all 49 retained project commits with the repository summary.</li></ul> | [Full record](#change-8) |
-| Dated change | 2026-08-31 | <ul><li><strong>Change:</strong> Added and categorized the source-backed architecture inventory.</li></ul> | [Full record](#change-9) |
-| Dated change | 2026-08-29 | <ul><li><strong>Change:</strong> Documented evidenced scoring and team-page contacts, corrected the composite-score/BANT/MEDDIC distinction, and added the source-layout table.</li></ul> | [Full record](#change-10) |
-| Shared label merging | 2026-08-28 | <ul><li><strong>Change:</strong> Shared label merging.</li></ul> | [Full record](#change-11) |
-| Dated change | 2026-08-23 | <ul><li><strong>Change:</strong> Upgraded the runtime/dependencies and integrated LangChain model adapters and typed LangGraph request/subgraphs.</li></ul> | [Full record](#change-12) |
-| Dated change | 2026-08-22 | <ul><li><strong>Change:</strong> Introduced match schemas, routing, bounded candidate scoring, ranked reports, and selectable company cards.</li></ul> | [Full record](#change-13) |
-| Dated change | 2026-08-21 | <ul><li><strong>Change:</strong> Introduced the standalone BYOK prospect-audit application and four research skills.</li></ul> | [Full record](#change-14) |
+| Documentation | 2026-09-06 | <ul><li><strong>Structure:</strong> User guide first; one history table.</li><li><strong>Rules:</strong> Scoped contributor guidance under AGENTS.</li></ul> | [Full record](#readme-organization) |
+| Maintenance | 2026-09-06 | <ul><li><strong>Change:</strong> Reorganized long paragraphs and table cells without dropping details.</li></ul> | [Full record](#change-1) |
+| Documentation | 2026-09-06 | <ul><li><strong>Change:</strong> Moved complete project descriptions, register details, and repository-origin history into this README.</li></ul> | [Full record](#change-2) |
+| Maintenance | 2026-09-05 | <ul><li><strong>Change:</strong> Completed a full-sweep exhaustive pass: all 103 project files read start to finish rather than by diff, which reached two defects no earlier pass had.</li></ul> | [Full record](#change-3) |
+| Maintenance | 2026-09-05 | <ul><li><strong>Change:</strong> Turned on strict index checking (noUncheckedIndexedAccess) and resolved the 103 errors it raised, which exposed two defects that reading alone had not.</li></ul> | [Full record](#change-4) |
+| Maintenance | 2026-09-04 | <ul><li><strong>Change:</strong> Made the end-to-end suite actually run and turned coverage from a number into a gate.</li></ul> | [Full record](#change-5) |
+| Maintenance | 2026-09-02 | <ul><li><strong>Change:</strong> Declared Prospect Copilot's dated-history mode and linked it to the centralized repository policy.</li></ul> | [Full record](#change-6) |
+| Maintenance | 2026-09-02 | <ul><li><strong>Change:</strong> Completed the project's first repository-wide exhaustive pass.</li></ul> | [Full record](#change-7) |
+| Maintenance | 2026-08-31 | <ul><li><strong>Change:</strong> Reconciled all 49 retained project commits with the repository summary.</li></ul> | [Full record](#change-8) |
+| Maintenance | 2026-08-31 | <ul><li><strong>Change:</strong> Added and categorized the source-backed architecture inventory.</li></ul> | [Full record](#change-9) |
+| Maintenance | 2026-08-29 | <ul><li><strong>Change:</strong> Documented evidenced scoring and team-page contacts, corrected the composite-score/BANT/MEDDIC distinction, and added the source-layout table.</li></ul> | [Full record](#change-10) |
+| Maintenance | 2026-08-28 | <ul><li><strong>Change:</strong> Shared label merging.</li></ul> | [Full record](#change-11) |
+| Maintenance | 2026-08-23 | <ul><li><strong>Change:</strong> Upgraded the runtime/dependencies and integrated LangChain model adapters and typed LangGraph request/subgraphs.</li></ul> | [Full record](#change-12) |
+| Maintenance | 2026-08-22 | <ul><li><strong>Change:</strong> Introduced match schemas, routing, bounded candidate scoring, ranked reports, and selectable company cards.</li></ul> | [Full record](#change-13) |
+| Maintenance | 2026-08-21 | <ul><li><strong>Change:</strong> Introduced the standalone BYOK prospect-audit application and four research skills.</li></ul> | [Full record](#change-14) |
 
 <details>
 <summary>Full records for this table</summary>
