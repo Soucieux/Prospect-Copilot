@@ -263,7 +263,7 @@ project-specific role, read from the current source and dependency manifest.
 <!-- project-control:section=ignore -->
 ## Contributing
 
-For source changes, follow the [repository instructions](../AGENTS.md#prospect-copilot).
+For source changes, follow the [Prospect Copilot contribution guide](CONTRIBUTING.md).
 
 <a id="repository-history-records"></a>
 <a id="change-log"></a>
@@ -276,8 +276,7 @@ For source changes, follow the [repository instructions](../AGENTS.md#prospect-c
 ## Change history
 
 **Change-history numbering:** This project uses dated history and does not assign project-level
-version or build numbers. Follow the repository-wide
-[version and build-number policy](../AGENTS.md#version-and-build-number-policy).
+version or build numbers. Follow the [version and build policy](CONTRIBUTING.md#version-and-build-policy).
 
 One record per change; complete details and evidence are below. Older work dates and Git checkpoints remain labelled when they differ.
 
@@ -285,6 +284,7 @@ One record per change; complete details and evidence are below. Older work dates
 
 | Record | Date | Highlights | Details |
 |---|---|---|---|
+| Documentation | 2026-09-11 | <ul><li><strong>Contributing:</strong> Added a standalone project guide for the canonical workspace and public subtree.</li><li><strong>Links:</strong> Removed README dependencies on parent-only repository files.</li><li><strong>Repository:</strong> Added a feature-first public GitHub description.</li></ul> | [Full record](#standalone-contributor-guide) |
 | Documentation | 2026-09-06 | <ul><li><strong>Structure:</strong> User guide first; one history table.</li><li><strong>Rules:</strong> Scoped contributor guidance under AGENTS.</li></ul> | [Full record](#readme-organization) |
 | Maintenance | 2026-09-06 | <ul><li><strong>Change:</strong> Reorganized long paragraphs and table cells without dropping details.</li></ul> | [Full record](#change-1) |
 | Documentation | 2026-09-06 | <ul><li><strong>Change:</strong> Moved complete project descriptions, register details, and repository-origin history into this README.</li></ul> | [Full record](#change-2) |
@@ -303,6 +303,24 @@ One record per change; complete details and evidence are below. Older work dates
 
 <details>
 <summary>Full records for this table</summary>
+
+<a id="standalone-contributor-guide"></a>
+
+### Standalone contributor guide — 2026-09-11
+
+- Added `CONTRIBUTING.md` with Prospect Copilot's public framework, privacy, security, evidence,
+  testing, and dated-history boundaries.
+- Changed the README's contributor and history-policy links to paths inside this project, so the
+  canonical subtree and standalone public repository can keep identical files without broken
+  parent links.
+- Kept the canonical workspace's root instructions and scoped internal procedure authoritative for
+  its workflow; no parent-repository instruction file is copied into the standalone subtree.
+- Set the public GitHub repository description to a feature-first summary of the multilingual BYOK
+  sales research, qualification, contact discovery, outreach, and buyer/seller matching workflow.
+- **Status:** Documentation only. Application behavior, dependencies, builds, deployment, and
+  publication evidence are unchanged by these source files.
+
+[Back to change history](#change-history)
 
 <a id="readme-organization"></a>
 
