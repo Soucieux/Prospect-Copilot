@@ -1,9 +1,5 @@
 # Prospect Copilot
 
-<a id="repository-description-archive"></a>
-
-<a id="repository-register-detail"></a>
-
 <!-- project-control:section=overview -->
 ## Overview
 
@@ -45,10 +41,6 @@ LLM_ALLOWED_BASE_URLS="https://api.openai.com/v1,http://127.0.0.1:11434/v1" npm 
 
 - The browser cannot select an arbitrary provider that the server has not approved.
 - This prevents the chat endpoint from being used to contact internal services while still allowing an administrator to opt in a local provider.
-
-<a id="core-capabilities"></a>
-
-<a id="prospect-copilot-2"></a>
 
 <!-- project-control:section=workflows -->
 ## How it works
@@ -226,10 +218,6 @@ Answers use fetched page evidence; no local embedding model or vector database i
 Each row covers one technology or concept within its category and describes that item's
 project-specific role, read from the current source and dependency manifest.
 
-<a id="storage-model"></a>
-<a id="data-handling"></a>
-<a id="safety-rules-ported-from-the-original"></a>
-
 ## Privacy and result quality
 
 - Settings (base URL, model, API key): `localStorage` only.
@@ -248,29 +236,14 @@ project-specific role, read from the current source and dependency manifest.
 - **Partial results:** Subagent failures reduce the composite score's confidence instead of
   failing the run; partial data is always marked.
 
-<a id="references"></a>
-
 ## Design reference
 
 [Implementation plan](docs/implementation-plan.md) records scope decisions and design references.
-
-<a id="project-guardrails"></a>
-<a id="prospect-copilot-1"></a>
-<a id="testing"></a>
-<a id="what-the-coverage-floors-mean"></a>
-<a id="scripts"></a>
 
 <!-- project-control:section=ignore -->
 ## Contributing
 
 For source changes, follow the [Prospect Copilot contribution guide](CONTRIBUTING.md).
-
-<a id="repository-history-records"></a>
-<a id="change-log"></a>
-
-<a id="history-index-1"></a>
-
-<a id="history-index-5"></a>
 
 <!-- project-control:section=history -->
 ## Change history
@@ -329,7 +302,7 @@ One record per change; complete details and evidence are below. Older work dates
 - **Structure:** Put purpose, capabilities, setup, architecture, and workflows before history.
 - **History:** Merge matching repository-origin records into the owning change; preserve unique detail, evidence, and older links.
 - **Ownership:** Keep user documentation here; route scoped contributor rules through root AGENTS.
-- **Status:** Documentation changes only; uncommitted. Existing application versions, artifacts, and deployment state are unchanged.
+- **Status:** Documentation changes only; initially delivered uncommitted and recorded in `795cd8e`. Existing application versions, artifacts, and deployment state are unchanged.
 
 <a id="change-1"></a>
 <a id="readability-maintenance"></a>
@@ -360,14 +333,11 @@ Local documentation changes; initially delivered uncommitted and recorded in thi
 
 **Evidence and delivery status**
 
-Local documentation update; uncommitted
+Local documentation update; initially delivered uncommitted and recorded in `795cd8e`
 
 [Back to change history](#change-history)
 
 <a id="change-3"></a>
-<a id="readme-detail-1"></a>
-<a id="readme-detail-5"></a>
-<a id="repository-record-1"></a>
 
 ### Completed a full-sweep exhaustive pass: all 103 project files read start to finish rather than by diff, which reached two defects no earlier pass had
 
@@ -400,9 +370,6 @@ Local documentation update; uncommitted
 [Back to change history](#change-history)
 
 <a id="change-4"></a>
-<a id="readme-detail-2"></a>
-<a id="readme-detail-6"></a>
-<a id="repository-record-2"></a>
 
 ### Turned on strict index checking (noUncheckedIndexedAccess) and resolved the 103 errors it raised, which exposed two defects that reading alone had not
 
@@ -430,9 +397,6 @@ Local documentation update; uncommitted
 [Back to change history](#change-history)
 
 <a id="change-5"></a>
-<a id="readme-detail-3"></a>
-<a id="readme-detail-7"></a>
-<a id="repository-record-3"></a>
 
 ### Made the end-to-end suite actually run and turned coverage from a number into a gate
 
@@ -518,9 +482,6 @@ This documentation commit
 [Back to change history](#change-history)
 
 <a id="change-7"></a>
-<a id="readme-detail-4"></a>
-<a id="readme-detail-8"></a>
-<a id="repository-record-4"></a>
 
 ### Completed the project's first repository-wide exhaustive pass
 
@@ -556,7 +517,6 @@ Corrected MEDDIC so a distant contract renewal reads as looked-for-and-absent ra
 [Back to change history](#change-history)
 
 <a id="change-8"></a>
-<a id="repository-record-5"></a>
 
 ### Reconciled all 49 retained project commits with the repository summary
 
@@ -579,9 +539,6 @@ This documentation commit
 [Back to change history](#change-history)
 
 <a id="change-9"></a>
-<a id="repository-record-6"></a>
-<a id="repository-record-7"></a>
-<a id="repository-record-8"></a>
 
 ### Added and categorized the source-backed architecture inventory
 
@@ -606,8 +563,6 @@ Historical work record
 [Back to change history](#change-history)
 
 <a id="change-10"></a>
-<a id="readme-detail-9"></a>
-<a id="repository-record-9"></a>
 
 ### Documented evidenced scoring and team-page contacts, corrected the composite-score/BANT/MEDDIC distinction, and added the source-layout table
 
@@ -633,8 +588,6 @@ Historical work record
 [Back to change history](#change-history)
 
 <a id="change-11"></a>
-<a id="readme-detail-10"></a>
-<a id="repository-record-10"></a>
 
 ### Shared label merging
 
@@ -666,8 +619,6 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
 [Back to change history](#change-history)
 
 <a id="change-12"></a>
-<a id="readme-detail-11"></a>
-<a id="repository-record-11"></a>
 
 ### Upgraded the runtime/dependencies and integrated LangChain model adapters and typed LangGraph request/subgraphs
 
@@ -703,8 +654,6 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
 [Back to change history](#change-history)
 
 <a id="change-13"></a>
-<a id="readme-detail-12"></a>
-<a id="repository-record-12"></a>
 
 ### Introduced match schemas, routing, bounded candidate scoring, ranked reports, and selectable company cards
 
@@ -743,8 +692,6 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
 [Back to change history](#change-history)
 
 <a id="change-14"></a>
-<a id="readme-detail-13"></a>
-<a id="repository-record-13"></a>
 
 ### Introduced the standalone BYOK prospect-audit application and four research skills
 
