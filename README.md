@@ -319,6 +319,8 @@ One record per change; complete details and evidence are below. Older work dates
 - **Ownership:** Keep user documentation here; route scoped contributor rules through root AGENTS.
 - **Status:** Documentation changes only; initially delivered uncommitted and recorded in `795cd8e`. Existing application versions, artifacts, and deployment state are unchanged.
 
+[Back to change history](#change-history)
+
 <a id="change-1"></a>
 <a id="readability-maintenance"></a>
 
