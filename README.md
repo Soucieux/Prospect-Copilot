@@ -317,7 +317,7 @@ One record per change; complete details and evidence are below. Older work dates
 - **Structure:** Put purpose, capabilities, setup, architecture, and workflows before history.
 - **History:** Merge matching repository-origin records into the owning change; preserve unique detail, evidence, and older links.
 - **Ownership:** Keep user documentation here; route scoped contributor rules through root AGENTS.
-- **Status:** Documentation changes only; initially delivered uncommitted and recorded in `795cd8e`. Existing application versions, artifacts, and deployment state are unchanged.
+- **Status:** Documentation changes only; initially delivered uncommitted and recorded in `07fa894`. Existing application versions, artifacts, and deployment state are unchanged.
 
 [Back to change history](#change-history)
 
@@ -350,7 +350,7 @@ Local documentation changes; initially delivered uncommitted and recorded in thi
 
 **Evidence and delivery status**
 
-Local documentation update; initially delivered uncommitted and recorded in `795cd8e`
+Local documentation update; initially delivered uncommitted and recorded in `07fa894`
 
 [Back to change history](#change-history)
 
@@ -382,7 +382,7 @@ Local documentation update; initially delivered uncommitted and recorded in `795
 
 **Evidence and delivery status**
 
-`cedd296`, `07ecbe8`, `33024c4`, `9c3dcc0`, `e71abb3`, `c06ca8c`, `cab8ae9`
+`5dfd420`, `a9fe85f`, `4201ae4`, `c416aff`, `e7087d4`, `a94900e`, `948468b`
 
 [Back to change history](#change-history)
 
@@ -409,7 +409,7 @@ Local documentation update; initially delivered uncommitted and recorded in `795
 
 **Evidence and delivery status**
 
-`7782504`, `f443168`, `51d74ce`, `60b869b`, `6c25f0d`
+`173d5cc`, `1fda526`, `fcf458b`, `786ccd8`, `a6b14d4`
 
 [Back to change history](#change-history)
 
@@ -480,7 +480,7 @@ Coverage now fails the run below per-directory floors, and the project README re
 
 **Evidence and delivery status**
 
-`e59ab9c`, `c5fc241`, `a144a6d`, `fdecb4a`
+`9a3d3f4`, `fb64308`, `d76110a`, `ceb01ae`
 
 [Back to change history](#change-history)
 
@@ -529,7 +529,7 @@ Corrected MEDDIC so a distant contract renewal reads as looked-for-and-absent ra
 
 **Evidence and delivery status**
 
-`9ad57e8`, `cd27350`, `c0935eb`, `a656890`, `2f2ae50`, `d0e89ba`, `c1fa247`
+`d53aabf`, `6ca9293`, `3b02b20`, `5983b85`, `60c7be1`, `3bb4059`, `8686b25`
 
 [Back to change history](#change-history)
 
@@ -551,7 +551,7 @@ Corrected MEDDIC so a distant contract renewal reads as looked-for-and-absent ra
 
 This documentation commit
 
-`0bc66bf`
+`9db9f38`
 
 [Back to change history](#change-history)
 
@@ -573,7 +573,7 @@ Grouped architecture into AI, frontend, backend logic, storage, and integration 
 
 **Evidence and delivery status**
 
-`7bcc353`, `d2ccc14`
+`a575bee`, `b42d8c3`
 
 Historical work record
 
@@ -600,7 +600,7 @@ Historical work record
 
 **Evidence and delivery status**
 
-`ceb62e8`, `ad4d81f`, `44dfe85`
+`781e950`, `a7d985e`, `a94d299`
 
 [Back to change history](#change-history)
 
@@ -631,7 +631,7 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
 
 **Evidence and delivery status**
 
-`a74eb04`, `60fa659`, `f7dbea5`, `a9e0745`, `e7ece93`, `7b38a6d`
+`d9450ec`, `e6cbb10`, `4254322`, `cd4660d`, `017a869`, `71b8d44`
 
 [Back to change history](#change-history)
 
@@ -666,7 +666,7 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
 
 **Evidence and delivery status**
 
-`dcc4acc`, `b7b92ca`, `ea1da03`, `120c988`, `fd030a9`, `969b66d`, `3f429c0`, `ddb56b0`, `de24386`, `ba5162e`, `16ef695`, `223bb85`, `462a128`
+`9697622`, `8e7419a`, `1d9a2ab`, `027ffac`, `dd4c729`, `4cb8b07`, `d6fa476`, `11f8d83`, `9ec9bb1`, `e94a38e`, `e617cff`, `67602a7`, `a4e739d`
 
 [Back to change history](#change-history)
 
@@ -704,7 +704,7 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
 
 **Evidence and delivery status**
 
-- `2e36baf`, `9b61dbd`, `2b47ade`, `683f407`, `631010f`, `37fd8e7`, `0f6d03f`, `afef726`, `e60f1ce`, `648da3e`, `0566a5b`, `f1a20f0`, `a8044ed`, `27115c6`, `0652109`, `21387a8`, `131b083`, `3a7dd86`, `62cc0d9`
+- `b8805a0`, `6b7d0f5`, `e1d780a`, `7640876`, `da888a2`, `a47bc6b`, `14851d6`, `2adfd92`, `ffc5c33`, `8cb3db9`, `8638c1d`, `888354a`, `10a7eca`, `b576772`, `af85fce`, `1cc1823`, `f272cb2`, `4efd866`, `d2384f9`
 
 [Back to change history](#change-history)
 
@@ -737,7 +737,7 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
 
 **Evidence and delivery status**
 
-`dd70a0d`, `85bf44c`, `8b0d27f`, `48ca88d`, `e285d96`, `87831b6`
+`b1a79ca`, `03e0265`, `37ec568`, `8ca9e2f`, `796ed07`, `da28979`
 
 [Back to change history](#change-history)
 
