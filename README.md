@@ -260,6 +260,7 @@ One record per change; complete details and evidence are below. Older work dates
 
 | Record | Date | Highlights | Details |
 |---|---|---|---|
+| Maintenance | 2026-09-23 | <ul><li><strong>Tests:</strong> Prospect scoring is now tested when analysis workers fail: any one of them, the one that reports hiring and pain signals, or all five.</li><li><strong>Behavior:</strong> Unchanged; the tests pin what a failed worker already did.</li></ul> | [Full record](#failed-worker-scoring-tests) |
 | Maintenance | 2026-09-23 | <ul><li><strong>Security:</strong> Cleared the five dependency advisories GitHub reported — two critical in Next.js, one high in sharp, and two medium in Vitest.</li><li><strong>Versions:</strong> Next.js 16.3.3, sharp 0.35.4, and Vitest with its coverage provider 4.1.11.</li><li><strong>Coverage:</strong> Vitest 4 counts branches differently, so three coverage floors were re-measured; all 394 unit tests and 57 end-to-end runs pass.</li></ul> | [Full record](#dependency-advisories-cleared) |
 | Maintenance | 2026-09-23 | <ul><li><strong>Identity:</strong> Added the selected evidence-dossier icon with one consistent rounded-square silhouette; its full-size master lives in `Resources/`.</li><li><strong>Browser:</strong> Next.js serves a 256-pixel copy through its App Router icon convention.</li><li><strong>Finder:</strong> The project folder mirrors the full-size master without changing workflows or data handling.</li></ul> | [Full record](#prospect-copilot-project-icon) |
 | Documentation | 2026-09-13 | <ul><li><strong>License:</strong> Added the approved Soucieux proprietary-software notice.</li></ul> | [Full record](#soucieux-proprietary-license) |
@@ -282,6 +283,24 @@ One record per change; complete details and evidence are below. Older work dates
 
 <details>
 <summary>Full records for this table</summary>
+
+<a id="failed-worker-scoring-tests"></a>
+
+### Failed-worker scoring tests — 2026-09-23
+
+- **Gap:** no unit test covered what prospect scoring does when an analysis worker fails, although
+  a provider error or a rejected response can leave any of the five without a result.
+- **Tests:** three cases in `src/lib/agent/orchestrator.test.ts`. One failed worker scores its
+  category at the neutral 50, marks it degraded, keeps the other four, and lowers confidence from
+  High to Medium. A failed Opportunity Scoring worker leaves Need and Timeline to page evidence and
+  lowers MEDDIC completeness, since its hiring and pain signals never arrive. With all five failed,
+  the composite is a neutral 50, grade C, at Very Low confidence, while Budget still comes from the
+  pricing page.
+- **Behavior:** unchanged. The tests pin what a failed worker already did, and each fails when a
+  failed worker is instead scored as 0.
+- **Evidence:** 397 unit tests and the coverage gate pass; the type check is clean.
+
+[Back to change history](#change-history)
 
 <a id="dependency-advisories-cleared"></a>
 

@@ -155,6 +155,88 @@ describe("scoreProspectBriefing", () => {
     expect(timeline?.score).toBeGreaterThan(0);
   });
 
+  /**
+   * Build settled results where the named workers failed and the rest
+   * returned the standard result.
+   * @param failed categories whose worker was rejected
+   * @param discoverySignals signals the Opportunity Scoring worker reports when it succeeds
+   * @returns settled results in SUBAGENTS order
+   */
+  const resultsWithFailures = (
+    failed: string[],
+    discoverySignals?: SubagentResult["discoverySignals"],
+  ): PromiseSettledResult<SubagentResult>[] =>
+    SUBAGENTS.map((definition) =>
+      failed.includes(definition.category)
+        ? { status: "rejected" as const, reason: new Error("provider down") }
+        : {
+            status: "fulfilled" as const,
+            value:
+              definition.category === "opportunityQuality"
+                ? { ...SUBAGENT_RESULT, discoverySignals }
+                : SUBAGENT_RESULT,
+          },
+    );
+
+  it("scores a failed worker's category as neutral and keeps the others", () => {
+    const { composite } = scoreProspectBriefing(
+      BRIEFING,
+      resultsWithFailures(["companyFit"]),
+    );
+    expect(composite.degradedCategories).toEqual(["companyFit"]);
+    expect(
+      composite.weighted.find((entry) => entry.category === "Company Fit")?.score,
+    ).toBe(50);
+    expect(
+      composite.weighted
+        .filter((entry) => entry.category !== "Company Fit")
+        .map((entry) => entry.score),
+    ).toEqual([70, 70, 70, 70]);
+    // 50 x 0.25 for the failed category plus 70 x 0.75 for the other four.
+    expect(composite.score).toBe(65);
+    expect(composite.confidence).toBe("Medium");
+  });
+
+  it("leaves Need and Timeline to page evidence when the signal worker fails", () => {
+    const signals = { painPointsDetected: 3, activeJobPostings: 12 };
+    const failed = scoreProspectBriefing(
+      BRIEFING,
+      resultsWithFailures(["opportunityQuality"], signals),
+    );
+    const succeeded = scoreProspectBriefing(
+      BRIEFING,
+      resultsWithFailures([], signals),
+    );
+    const scoreOf = (
+      state: typeof failed,
+      name: "need" | "timeline",
+    ): number | undefined =>
+      state.bant.dimensions.find((dimension) => dimension.name === name)?.score;
+    expect(failed.composite.degradedCategories).toEqual(["opportunityQuality"]);
+    expect(scoreOf(failed, "need")).toBe(0);
+    expect(scoreOf(failed, "timeline")).toBe(0);
+    expect(scoreOf(succeeded, "need")).toBeGreaterThan(0);
+    expect(failed.meddic.completenessPercent).toBeLessThan(
+      succeeded.meddic.completenessPercent,
+    );
+  });
+
+  it("falls back to a neutral, very-low-confidence score when every worker fails", () => {
+    const { composite, bant } = scoreProspectBriefing(
+      BRIEFING,
+      resultsWithFailures(SUBAGENTS.map((definition) => definition.category)),
+    );
+    expect(composite.degradedCategories).toEqual(
+      SUBAGENTS.map((definition) => definition.category),
+    );
+    expect(composite.score).toBe(50);
+    expect(composite.grade).toBe("C");
+    expect(composite.confidence).toBe("Very Low");
+    // Budget still comes from the pricing page the briefing found.
+    expect(bant.dimensions.find((dimension) => dimension.name === "budget")?.score)
+      .toBeGreaterThan(0);
+  });
+
   it("raises MEDDIC completeness once those signals arrive", () => {
     const withoutSignals = scoreProspectBriefing(
       BRIEFING,
