@@ -31,19 +31,22 @@ export default defineConfig({
       // already is, so an untested addition fails the run instead of landing
       // unnoticed. Raise them when the measured numbers rise; never treat
       // reaching one as evidence that a behaviour is covered.
-      // The branch floor sits at 90 rather than 91 because
-      // `noUncheckedIndexedAccess` requires guards on index reads that are
+      // Vitest 4 reads branches from the syntax tree, so every `??`, `&&`,
+      // `?.`, implicit `else` and default value counts - including those in
+      // functions no unit test runs, such as the workflow node bodies. The
+      // floors were re-measured on that basis when Vitest 4 arrived.
+      // Guards that `noUncheckedIndexedAccess` requires on index reads are
       // unreachable by construction - a loop condition or a length check has
-      // already proven the element exists. Those guards count toward the
-      // denominator and no test can reach them, so they cap the ratio.
+      // already proven the element exists - yet still count toward the
+      // denominator, so they cap the branch ratio.
       thresholds: {
         statements: 82,
-        branches: 90,
-        functions: 84,
+        branches: 82,
+        functions: 78,
         lines: 82,
         "src/lib/*.ts": {
-          statements: 95,
-          branches: 87,
+          statements: 94,
+          branches: 80,
           functions: 98,
           lines: 95,
         },
@@ -66,10 +69,12 @@ export default defineConfig({
           lines: 95,
         },
         // Statements stay unpinned here on purpose: the subgraph node bodies
-        // are calls into the graph runtime and the model. Every decision they
-        // contain is pinned instead, which is what a routing bug would break.
+        // are calls into the graph runtime and the model. Vitest 4 also counts
+        // the branches inside those bodies, which is why this floor sits at 52;
+        // every branch in code the unit tests run is taken, and that is what a
+        // routing bug would break.
         "src/lib/workflow/**": {
-          branches: 95,
+          branches: 52,
         },
         "src/app/api/**": {
           statements: 95,

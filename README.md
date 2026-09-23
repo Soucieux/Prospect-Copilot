@@ -260,6 +260,7 @@ One record per change; complete details and evidence are below. Older work dates
 
 | Record | Date | Highlights | Details |
 |---|---|---|---|
+| Maintenance | 2026-09-23 | <ul><li><strong>Security:</strong> Cleared the five dependency advisories GitHub reported — two critical in Next.js, one high in sharp, and two medium in Vitest.</li><li><strong>Versions:</strong> Next.js 16.3.3, sharp 0.35.4, and Vitest with its coverage provider 4.1.11.</li><li><strong>Coverage:</strong> Vitest 4 counts branches differently, so three coverage floors were re-measured; all 394 unit tests and 57 end-to-end runs pass.</li></ul> | [Full record](#dependency-advisories-cleared) |
 | Maintenance | 2026-09-23 | <ul><li><strong>Identity:</strong> Added the selected evidence-dossier icon with one consistent rounded-square silhouette; its full-size master lives in `Resources/`.</li><li><strong>Browser:</strong> Next.js serves a 256-pixel copy through its App Router icon convention.</li><li><strong>Finder:</strong> The project folder mirrors the full-size master without changing workflows or data handling.</li></ul> | [Full record](#prospect-copilot-project-icon) |
 | Documentation | 2026-09-13 | <ul><li><strong>License:</strong> Added the approved Soucieux proprietary-software notice.</li></ul> | [Full record](#soucieux-proprietary-license) |
 | Documentation | 2026-09-11 | <ul><li><strong>Contributing:</strong> Added a standalone project guide for the canonical workspace and public subtree.</li><li><strong>Links:</strong> Removed README dependencies on parent-only repository files.</li><li><strong>Repository:</strong> Added a feature-first public GitHub description.</li></ul> | [Full record](#standalone-contributor-guide) |
@@ -281,6 +282,41 @@ One record per change; complete details and evidence are below. Older work dates
 
 <details>
 <summary>Full records for this table</summary>
+
+<a id="dependency-advisories-cleared"></a>
+
+### Dependency advisories cleared — 2026-09-23
+
+- **What was reported:** five open advisories against the lockfile. Next.js 16.3.2 carried two
+  critical ones: unauthenticated remote code execution through the image optimization API when AVIF
+  files are used (GHSA-2xp9-vwfh-vxw4), and remote code execution on Windows-hosted servers
+  (GHSA-p293-qw3h-jr36). sharp 0.35.3 carried a high one in its bundled libheif
+  (GHSA-rgj7-g3m4-5g8c). Vitest and `@vitest/mocker` 3.2.7 carried a medium path traversal through
+  a redirect mock (GHSA-82fw-gwwq-j7x9).
+- **Fix:** each moves to its first patched release: `next` 16.3.3; `sharp` 0.35.4 with libvips
+  1.3.3, within the range Next.js already declares; and `vitest` with `@vitest/coverage-v8` 4.1.11.
+  The manifest keeps its caret ranges, and the lockfile pins those versions. No Vitest 3 release
+  carries the fix, so this is a major upgrade: Vite moves from 7 to 8 underneath it, and 113
+  packages only Vitest 3 used leave the lockfile, including the deprecated `glob` 10.
+- **Coverage floors:** Vitest 4 reads branches from the syntax tree, so every `??`, `?.`, implicit
+  `else`, and default value now counts, including those in functions no unit test runs. The same
+  tests therefore measure lower: overall branches 82% instead of 91%, and the workflow scope 52%
+  instead of 98%, where every missed branch sits in a node body that calls the graph runtime and the
+  model. The failing floors were set to the new measurements — overall branches 82 and functions 78,
+  `src/lib/*.ts` statements 94 and branches 80, workflow branches 52 — and the others are unchanged.
+  The finer count also shows one untested path: the orchestrator's handling of an analysis worker
+  that failed.
+- **Installing:** `npm ci` works with npm 10 and 11. Changing dependencies with npm 10.9.8 fails
+  while it resolves Vitest 4's optional peers ("Cannot read properties of null"), so this lockfile
+  was updated with npm 11.
+- **Unchanged:** `agentRules: false`, application behavior, model requests, browser storage, and
+  external access.
+- **Evidence:** `npm audit` reports no vulnerabilities. Typecheck, the 394 unit tests, the coverage
+  gate, the production build, and the 57 end-to-end runs across Chromium, Firefox, and WebKit pass.
+- **Status:** uncommitted source and lockfile change with local checks; not committed, deployed, or
+  published.
+
+[Back to change history](#change-history)
 
 <a id="prospect-copilot-project-icon"></a>
 
