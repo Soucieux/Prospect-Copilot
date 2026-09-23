@@ -313,8 +313,7 @@ One record per change; complete details and evidence are below. Older work dates
   external access.
 - **Evidence:** `npm audit` reports no vulnerabilities. Typecheck, the 394 unit tests, the coverage
   gate, the production build, and the 57 end-to-end runs across Chromium, Firefox, and WebKit pass.
-- **Status:** uncommitted source and lockfile change with local checks; not committed, deployed, or
-  published.
+- **Status:** delivered uncommitted with local checks, then committed as `35df6f8`. Not deployed.
 
 [Back to change history](#change-history)
 
