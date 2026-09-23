@@ -115,13 +115,14 @@ Retries have one owner per operation:
 
 | Path | Responsibility |
 | --- | --- |
-| `src/app/` | App Router page and the single `/api/chat` streaming endpoint. |
+| `src/app/` | App Router page, browser icon, and the single `/api/chat` streaming endpoint. |
 | `src/lib/workflow/` | LangGraph graph, shared state, and the prospect, match, standalone, and plain-chat subgraphs. |
 | `src/lib/agent/` | Intent router, prospect orchestrator, and the Zod schemas every structured model call is validated against. |
 | `src/lib/extract/` | Secure fetching (SSRF guard), homepage analysis, contact discovery, and HTML-to-text. |
 | `src/lib/scoring/` | Deterministic BANT, MEDDIC, and composite scoring. No I/O and no model calls. |
 | `src/lib/skills/` | The five subagent definitions, the four standalone skills, and the match pipeline. |
 | `src/lib/storage/` | Browser IndexedDB persistence for conversations and reports. |
+| `Resources/` | Full-size project icon master, kept outside `src/app/` so Next.js does not serve it. |
 
 Business rules live in `scoring/` and `extract/`, never in a prompt: the model supplies evidenced facts and deterministic TypeScript does every calculation.
 
@@ -259,6 +260,7 @@ One record per change; complete details and evidence are below. Older work dates
 
 | Record | Date | Highlights | Details |
 |---|---|---|---|
+| Maintenance | 2026-09-23 | <ul><li><strong>Identity:</strong> Added the selected evidence-dossier icon with one consistent rounded-square silhouette; its full-size master lives in `Resources/`.</li><li><strong>Browser:</strong> Next.js serves a 256-pixel copy through its App Router icon convention.</li><li><strong>Finder:</strong> The project folder mirrors the full-size master without changing workflows or data handling.</li></ul> | [Full record](#prospect-copilot-project-icon) |
 | Documentation | 2026-09-13 | <ul><li><strong>License:</strong> Added the approved Soucieux proprietary-software notice.</li></ul> | [Full record](#soucieux-proprietary-license) |
 | Documentation | 2026-09-11 | <ul><li><strong>Contributing:</strong> Added a standalone project guide for the canonical workspace and public subtree.</li><li><strong>Links:</strong> Removed README dependencies on parent-only repository files.</li><li><strong>Repository:</strong> Added a feature-first public GitHub description.</li></ul> | [Full record](#standalone-contributor-guide) |
 | Documentation | 2026-09-06 | <ul><li><strong>Structure:</strong> User guide first; one history table.</li><li><strong>Rules:</strong> Scoped contributor guidance under AGENTS.</li></ul> | [Full record](#readme-organization) |
@@ -279,6 +281,23 @@ One record per change; complete details and evidence are below. Older work dates
 
 <details>
 <summary>Full records for this table</summary>
+
+<a id="prospect-copilot-project-icon"></a>
+
+### Project identity icon — 2026-09-22 to 2026-09-23
+
+- Added the selected 1,024-pixel evidence-dossier artwork at `Resources/ProspectCopilotIcon.png`.
+  The dossier, magnifying lens, evidence signals, and qualification gauge represent the project's
+  research-first sales workflow. A transparent rounded-square mask gives every use the same outer
+  silhouette without redrawing the approved artwork.
+- A 256-pixel copy at `src/app/icon.png` is the browser icon, which Next.js exposes through its App
+  Router icon convention. The master stays outside `src/app/` because every `icon` file there
+  becomes a served icon. The Finder folder uses the master's pixels through ignored macOS
+  custom-icon metadata.
+- This presentation change does not alter model requests, scoring, browser storage, external access,
+  or deployment status.
+
+[Back to change history](#change-history)
 
 <a id="soucieux-proprietary-license"></a>
 
