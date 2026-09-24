@@ -50,7 +50,21 @@ LLM_ALLOWED_BASE_URLS="https://api.openai.com/v1,http://127.0.0.1:11434/v1" npm 
 1. Type a message in the chat page. A stateless LangGraph request workflow asks the intent router to
    classify it against six skills: **prospect** (full audit), **research**, **qualify**,
    **contacts**, **outreach**, **match** (rank candidate prospects for a product) - or plain chat.
-2. **Prospect** runs the full pipeline: page discovery (homepage + up to 6 subpages) -> deterministic extraction (tech stack, funding/jobs signals, and team-page contacts read from page text rather than links alone, with people employed elsewhere excluded) -> **5 parallel subagent analyses** -> a weighted composite of the five subagent scores (0-100, grade A+ to D), with deterministic BANT and MEDDIC reported alongside it as separate diagnostics -> LLM synthesis with an executive summary, action plan, and first-touch email.
+2. **Prospect** runs the full pipeline:
+
+   ```text
+   Full prospect audit
+   page discovery (homepage + up to 6 subpages)
+     ↓
+   deterministic extraction (tech stack, funding/jobs signals, and team-page contacts read from page text rather than links alone, with people employed elsewhere excluded)
+     ↓
+   5 parallel subagent analyses
+     ↓
+   a weighted composite of the five subagent scores (0-100, grade A+ to D), with deterministic BANT and MEDDIC reported alongside it as separate diagnostics
+     ↓
+   LLM synthesis with an executive summary, action plan, and first-touch email
+   ```
+
 3. Standalone skills (**research / qualify / contacts / outreach**) run light discovery when a URL
    is given, then stream their markdown deliverable.
 4. **Match** uses one ranked-candidate pipeline for both directions: it can find likely buyers for
