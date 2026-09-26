@@ -403,7 +403,7 @@ One record per change; complete details and evidence are below. Older work dates
   external access.
 - **Evidence:** `npm audit` reports no vulnerabilities. Typecheck, the 394 unit tests, the coverage
   gate, the production build, and the 57 end-to-end runs across Chromium, Firefox, and WebKit pass.
-- **Status:** delivered uncommitted with local checks, then committed as `35df6f8`. Not deployed.
+- **Status:** delivered uncommitted with local checks, then committed as `a085a66`. Not deployed.
 
 [Back to change history](#change-history)
 
@@ -461,7 +461,7 @@ One record per change; complete details and evidence are below. Older work dates
 - **Structure:** Put purpose, capabilities, setup, architecture, and workflows before history.
 - **History:** Merge matching repository-origin records into the owning change; preserve unique detail, evidence, and older links.
 - **Ownership:** Keep user documentation here; route scoped contributor rules through root AGENTS.
-- **Status:** Documentation changes only; initially delivered uncommitted and recorded in `07fa894`. Existing application versions, artifacts, and deployment state are unchanged.
+- **Status:** Documentation changes only; initially delivered uncommitted and recorded in `9587991`. Existing application versions, artifacts, and deployment state are unchanged.
 
 [Back to change history](#change-history)
 
@@ -493,7 +493,7 @@ Local documentation changes; initially delivered uncommitted and recorded in thi
 
 **Evidence and delivery status**
 
-Local documentation update; initially delivered uncommitted and recorded in `07fa894`
+Local documentation update; initially delivered uncommitted and recorded in `9587991`
 
 [Back to change history](#change-history)
 
@@ -524,7 +524,7 @@ Local documentation update; initially delivered uncommitted and recorded in `07f
 
 **Evidence and delivery status**
 
-`5dfd420`, `a9fe85f`, `4201ae4`, `c416aff`, `e7087d4`, `a94900e`, `948468b`
+`59839d5`, `e32af09`, `f940978`, `18d0016`, `97d017d`, `711cb36`, `ddcb606`
 
 [Back to change history](#change-history)
 
@@ -551,7 +551,7 @@ Local documentation update; initially delivered uncommitted and recorded in `07f
 
 **Evidence and delivery status**
 
-`173d5cc`, `1fda526`, `fcf458b`, `786ccd8`, `a6b14d4`
+`6859f38`, `b74f58f`, `004aec0`, `046c765`, `0047cbd`
 
 [Back to change history](#change-history)
 
@@ -612,7 +612,7 @@ Branch coverage rose from 90% to 91% overall with every targeted file above 87%,
 
 **Evidence and delivery status**
 
-`9a3d3f4`, `fb64308`, `d76110a`, `ceb01ae`
+`a9dc5c4`, `f93ee0f`, `56c4bfa`, `3501551`
 
 [Back to change history](#change-history)
 
@@ -660,7 +660,7 @@ Corrected MEDDIC so a distant contract renewal reads as looked-for-and-absent ra
 
 **Evidence and delivery status**
 
-`d53aabf`, `6ca9293`, `3b02b20`, `5983b85`, `60c7be1`, `3bb4059`, `8686b25`
+`e71d0c7`, `e675b4f`, `8f64d22`, `52ba674`, `9cead14`, `9a36559`, `192b8af`
 
 [Back to change history](#change-history)
 
@@ -727,7 +727,7 @@ Grouped architecture into AI, frontend, backend logic, storage, and integration 
 
 **Evidence and delivery status**
 
-`781e950`, `a7d985e`, `a94d299`
+`21b0ba5`, `5c9d222`, `a94d299`
 
 [Back to change history](#change-history)
 
@@ -758,7 +758,7 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
 
 **Evidence and delivery status**
 
-`d9450ec`, `e6cbb10`, `4254322`, `cd4660d`, `017a869`, `71b8d44`
+`b9662a2`, `2c5fb5d`, `01ea177`, `4748772`, `6d04390`, `4ab2052`
 
 [Back to change history](#change-history)
 
