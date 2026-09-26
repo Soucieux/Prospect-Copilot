@@ -274,6 +274,7 @@ One record per change; complete details and evidence are below. Older work dates
 
 | Record | Date | Highlights | Details |
 |---|---|---|---|
+| Maintenance | 2026-09-26 | <ul><li><strong>Icon:</strong> Redrew the project icon in the macOS icon shape at the standard size; the icon Next.js serves and the project folder's icon come from the same master.</li></ul> | [Full record](#aligned-project-icon) |
 | Maintenance | 2026-09-23 | <ul><li><strong>Tests:</strong> Prospect scoring is now tested when analysis workers fail: any one of them, the one that reports hiring and pain signals, or all five.</li><li><strong>Behavior:</strong> Unchanged; the tests pin what a failed worker already did.</li></ul> | [Full record](#failed-worker-scoring-tests) |
 | Maintenance | 2026-09-23 | <ul><li><strong>Security:</strong> Cleared the five dependency advisories GitHub reported — two critical in Next.js, one high in sharp, and two medium in Vitest.</li><li><strong>Versions:</strong> Next.js 16.3.3, sharp 0.35.4, and Vitest with its coverage provider 4.1.11.</li><li><strong>Coverage:</strong> Vitest 4 counts branches differently, so three coverage floors were re-measured; all 394 unit tests and 57 end-to-end runs pass.</li></ul> | [Full record](#dependency-advisories-cleared) |
 | Maintenance | 2026-09-23 | <ul><li><strong>Identity:</strong> Added the selected evidence-dossier icon with one consistent rounded-square silhouette; its full-size master lives in `Resources/`.</li><li><strong>Browser:</strong> Next.js serves a 256-pixel copy through its App Router icon convention.</li><li><strong>Finder:</strong> The project folder mirrors the full-size master without changing workflows or data handling.</li></ul> | [Full record](#prospect-copilot-project-icon) |
@@ -297,6 +298,21 @@ One record per change; complete details and evidence are below. Older work dates
 
 <details>
 <summary>Full records for this table</summary>
+
+<a id="aligned-project-icon"></a>
+
+### Aligned project icon — 2026-09-26
+
+- **Icon:** `Resources/ProspectCopilotIcon.png` keeps the same artwork, made full-bleed and clipped
+  to the rounded square macOS draws for app icons, 824 of 1024 pixels, so it has the standard macOS
+  outline and size.
+- **Web icon:** `src/app/icon.png`, the 256-pixel icon Next.js serves, was regenerated from the new
+  master, and the project folder's Finder icon was set from the same master.
+- **Checks:** both files were compared with the new master at their own sizes. The production build
+  and test suites were not rerun, because no code or configuration changed.
+- **Behavior:** unchanged.
+
+[Back to change history](#change-history)
 
 <a id="failed-worker-scoring-tests"></a>
 
