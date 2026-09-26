@@ -1,8 +1,8 @@
-import { ZodError } from "zod";
-import { LlmError, LlmStructuredOutputError } from "@/lib/llm";
-
-/** Provider statuses worth one more attempt; the single owner of this policy. */
-export const RETRYABLE_LLM_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+/**
+ * Cancellable waiting and bounded retry, with no knowledge of what is being
+ * retried. The page fetcher and the model adapter both build on this module,
+ * so it must not import either of them; each owns its own retry policy.
+ */
 
 /** Settings for one bounded, cancellable retry boundary. */
 export interface RetryOperationOptions {
@@ -11,6 +11,13 @@ export interface RetryOperationOptions {
   maxDelayMs: number;
   signal?: AbortSignal;
   shouldRetry: (caught: unknown) => boolean;
+}
+
+/** A timeout merged with caller cancellation for one operation. */
+export interface AbortContext {
+  signal: AbortSignal;
+  timedOut: () => boolean;
+  cleanup: () => void;
 }
 
 /**
@@ -25,17 +32,64 @@ export function delayWithSignal(
 ): Promise<void> {
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const onAbort = (): void => {
-      if (timer) clearTimeout(timer);
-      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-    timer = setTimeout(() => {
+    const timer = setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
       resolve();
     }, delayMs);
+    /** Cancel the pending delay and reject with the abort reason. */
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
+}
+
+/**
+ * Compute bounded exponential backoff with small jitter.
+ * @param attempt one-based failed attempt number
+ * @param initialDelayMs delay before the first retry, also the jitter range
+ * @param maxDelayMs ceiling for the computed delay
+ * @returns delay in milliseconds
+ */
+export function backoffDelayMs(
+  attempt: number,
+  initialDelayMs: number,
+  maxDelayMs: number,
+): number {
+  const exponential = initialDelayMs * 2 ** (attempt - 1);
+  const jitter = Math.floor(Math.random() * initialDelayMs);
+  return Math.min(exponential + jitter, maxDelayMs);
+}
+
+/**
+ * Combine an operation timeout with caller cancellation.
+ * @param timeoutMs how long the operation may run before it is aborted
+ * @param signal optional caller cancellation signal
+ * @returns the merged signal, a timeout probe, and a listener cleanup
+ */
+export function createAbortContext(
+  timeoutMs: number,
+  signal?: AbortSignal,
+): AbortContext {
+  const controller = new AbortController();
+  let hasTimedOut = false;
+  const timer = setTimeout(() => {
+    hasTimedOut = true;
+    controller.abort(new DOMException("Operation timed out", "TimeoutError"));
+  }, timeoutMs);
+  /** Forward the caller's abort into the combined signal. */
+  const abortFromCaller = (): void => controller.abort(signal?.reason);
+  if (signal?.aborted) abortFromCaller();
+  else signal?.addEventListener("abort", abortFromCaller, { once: true });
+  return {
+    signal: controller.signal,
+    timedOut: () => hasTimedOut,
+    cleanup: () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abortFromCaller);
+    },
+  };
 }
 
 /**
@@ -59,37 +113,10 @@ export async function retryOperation<Result>(
       if (attempt >= options.maxAttempts || !options.shouldRetry(caught)) {
         throw caught;
       }
-      const exponential = options.initialDelayMs * 2 ** (attempt - 1);
-      const jitter = Math.floor(Math.random() * options.initialDelayMs);
       await delayWithSignal(
-        Math.min(exponential + jitter, options.maxDelayMs),
+        backoffDelayMs(attempt, options.initialDelayMs, options.maxDelayMs),
         options.signal,
       );
     }
   }
 }
-
-/**
- * Classify failures from one structured LLM operation.
- * @param caught unknown provider, JSON, or schema failure
- * @returns true for temporary provider failures and repairable output errors
- */
-export function isRetryableStructuredLlmError(caught: unknown): boolean {
-  if (caught instanceof LlmError) {
-    return RETRYABLE_LLM_STATUSES.has(caught.status);
-  }
-  return (
-    caught instanceof TypeError ||
-    caught instanceof SyntaxError ||
-    caught instanceof ZodError ||
-    caught instanceof LlmStructuredOutputError
-  );
-}
-
-/** Standard two-attempt policy for non-streamed structured model calls. */
-export const STRUCTURED_LLM_RETRY_OPTIONS = {
-  maxAttempts: 2,
-  initialDelayMs: 300,
-  maxDelayMs: 1_000,
-  shouldRetry: isRetryableStructuredLlmError,
-} as const;

@@ -69,25 +69,28 @@ export interface CategoryScores {
   outreachReadiness?: number;
 }
 
+/** The stable key of one composite category; labels are resolved from it. */
+export type ProspectCategory = keyof CategoryScores;
+
 export interface ProspectComposite {
   score: number;
   grade: ProspectGrade;
   confidence: ConfidenceLevel;
-  weighted: { category: string; score: number; weight: number }[];
-  degradedCategories: string[];
+  weighted: { category: ProspectCategory; score: number; weight: number }[];
+  degradedCategories: ProspectCategory[];
 }
 
 /** Weights from the design doc; must sum to 1. */
-const CATEGORY_WEIGHTS = {
+export const CATEGORY_WEIGHTS: Record<ProspectCategory, number> = {
   companyFit: 0.25,
   contactAccess: 0.2,
   opportunityQuality: 0.2,
   competitivePosition: 0.15,
   outreachReadiness: 0.2,
-} as const;
+};
 
-/** Score assigned to a category whose subagent failed (design doc rule). */
-const NEUTRAL_CATEGORY_SCORE = 50;
+/** Score assigned to a category whose subagent failed, or that cannot be judged. */
+export const NEUTRAL_CATEGORY_SCORE = 50;
 
 /** A renewal this close is a live timing signal for BANT and MEDDIC alike. */
 const RENEWAL_WINDOW_MONTHS = 6;
@@ -430,25 +433,19 @@ export function scoreMeddic(signals: ProspectSignals): MeddicResult {
  */
 export function computeProspectScore(scores: CategoryScores): ProspectComposite {
   const entries = Object.entries(CATEGORY_WEIGHTS) as [
-    keyof typeof CATEGORY_WEIGHTS,
+    ProspectCategory,
     number,
   ][];
   const weighted: ProspectComposite["weighted"] = [];
-  const degradedCategories: string[] = [];
+  const degradedCategories: ProspectCategory[] = [];
   let total = 0;
   for (const [category, weight] of entries) {
     const raw = scores[category];
-    const effective =
-      raw === undefined || Number.isNaN(raw) ? NEUTRAL_CATEGORY_SCORE : raw;
-    if (raw === undefined || Number.isNaN(raw)) {
-      degradedCategories.push(category);
-    }
+    const isMissing = raw === undefined || Number.isNaN(raw);
+    const effective = isMissing ? NEUTRAL_CATEGORY_SCORE : raw;
+    if (isMissing) degradedCategories.push(category);
     total += effective * weight;
-    weighted.push({
-      category: CATEGORY_LABELS[category],
-      score: effective,
-      weight,
-    });
+    weighted.push({ category, score: effective, weight });
   }
   const score = Math.round(total);
   const completed = entries.length - degradedCategories.length;
@@ -460,15 +457,6 @@ export function computeProspectScore(scores: CategoryScores): ProspectComposite 
     degradedCategories,
   };
 }
-
-/** Human-readable labels for the weighted output table. */
-export const CATEGORY_LABELS: Record<keyof typeof CATEGORY_WEIGHTS, string> = {
-  companyFit: "Company Fit",
-  contactAccess: "Contact Access",
-  opportunityQuality: "Opportunity Quality",
-  competitivePosition: "Competitive Position",
-  outreachReadiness: "Outreach Readiness",
-};
 
 /**
  * Map a 0-100 score to the design doc's grade scale.

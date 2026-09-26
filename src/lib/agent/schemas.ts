@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod";
+import { DEFAULT_RESPONSE_LANGUAGE } from "@/lib/constants";
 
 /** Confidence tag every factual finding must carry. */
 const CONFIDENCE_VALUES = ["High", "Medium", "Low", "Inferred"] as const;
@@ -40,17 +41,19 @@ export const SUBAGENT_RESULT_SCHEMA = z.object({
 
 export type SubagentResult = z.infer<typeof SUBAGENT_RESULT_SCHEMA>;
 
+/** The skills the router can select, which are also every report kind. */
+const SKILL_NAMES = [
+  "prospect",
+  "research",
+  "qualify",
+  "contacts",
+  "outreach",
+  "match",
+] as const;
+
 /** Intent classification output for the skill router. */
 export const ROUTER_RESULT_SCHEMA = z.object({
-  skill: z.enum([
-    "prospect",
-    "research",
-    "qualify",
-    "contacts",
-    "outreach",
-    "match",
-    "none",
-  ]),
+  skill: z.enum([...SKILL_NAMES, "none"]),
   url: z.string().nullable(),
   entity: z.string().nullable(),
   /** The product/ICP relevant to the current buy or sell request. */
@@ -59,14 +62,13 @@ export const ROUTER_RESULT_SCHEMA = z.object({
   matchDirection: z
     .enum(["sell", "buy"])
     .nullish()
-    .default("sell")
     .transform((direction) => direction ?? "sell"),
   /** Explicit city, region, or country requested for matching; null otherwise. */
   matchLocation: z.string().trim().min(1).nullable().default(null),
   /** Companies explicitly named as match candidates, verbatim; null otherwise. */
   candidates: z.array(z.string()).nullable(),
   /** Language recognized from the latest user message, not scraped content. */
-  language: z.string().min(1).default("English"),
+  language: z.string().min(1).default(DEFAULT_RESPONSE_LANGUAGE),
   /** Partial translations of app-authored runtime labels. */
   runtimeLabels: z.record(z.string(), z.string()).default({}),
 });
@@ -105,14 +107,21 @@ export const SYNTHESIS_SCHEMA = z.object({
 
 export type SynthesisResult = z.infer<typeof SYNTHESIS_SCHEMA>;
 
-/** One ranked match candidate rendered as a card. */
+/**
+ * One ranked match candidate, as the match pipeline scores it and as the
+ * wire carries it to the cards: the single definition of its shape.
+ */
 export const MATCH_CANDIDATE_SCHEMA = z.object({
   url: z.string(),
   companyName: z.string(),
   score: z.number(),
+  /** Factual summary of what the company does, for someone unfamiliar with it. */
   description: z.string(),
+  /** Judgment of how well the company fits the requested match direction. */
   fitReason: z.string(),
+  /** From the page's own structured data, when present. */
   location: z.string().nullable(),
+  /** From the page's own structured data, when present. */
   founded: z.string().nullable(),
 });
 
@@ -122,14 +131,7 @@ export const MATCH_CANDIDATE_SCHEMA = z.object({
  * page renders can never drift apart.
  */
 export const REPORT_STATE_SCHEMA = z.object({
-  kind: z.enum([
-    "prospect",
-    "research",
-    "qualify",
-    "contacts",
-    "outreach",
-    "match",
-  ]),
+  kind: z.enum(SKILL_NAMES),
   companyName: z.string(),
   url: z.string().nullable(),
   // Standalone skills deliver a document without a numeric scorecard.
@@ -166,14 +168,39 @@ export const REPORT_STATE_SCHEMA = z.object({
   markdown: z.string(),
 });
 
+/** Progress phases carried by `phase` events, in pipeline order. */
+export const CHAT_PHASES = [
+  "routing",
+  "discovery",
+  "analysis",
+  "synthesis",
+  "done",
+] as const;
+
+export type ChatPhase = (typeof CHAT_PHASES)[number];
+
+/** The phases by name, so emitters never spell one as a bare string. */
+export const CHAT_PHASE = Object.fromEntries(
+  CHAT_PHASES.map((phase) => [phase, phase]),
+) as { [Phase in ChatPhase]: Phase };
+
+/** Lifecycle states a parallel worker reports through `agent` events. */
+export const AGENT_STATUSES = ["running", "done", "failed"] as const;
+
+export type AgentStatus = (typeof AGENT_STATUSES)[number];
+
 /** SSE wire events (discriminated by `type`). */
 export const CHAT_EVENT_SCHEMA = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("phase"), phase: z.string(), detail: z.string() }),
+  z.object({
+    type: z.literal("phase"),
+    phase: z.enum(CHAT_PHASES),
+    detail: z.string(),
+  }),
   z.object({
     type: z.literal("agent"),
     agent: z.string(),
     detail: z.string(),
-    status: z.enum(["running", "done", "failed"]),
+    status: z.enum(AGENT_STATUSES),
     score: z.number().optional(),
   }),
   z.object({ type: z.literal("token"), text: z.string() }),

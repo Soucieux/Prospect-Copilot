@@ -7,7 +7,8 @@ import {
   type BaseMessage,
 } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
-import { z } from "zod";
+import { z, ZodError } from "zod";
+import { createAbortContext, type AbortContext } from "@/lib/retry";
 
 export interface LlmMessage {
   role: "system" | "user" | "assistant";
@@ -22,8 +23,6 @@ export interface LlmConfig {
 
 export interface LlmCallOptions {
   temperature?: number;
-  /** Request a JSON-mode response from endpoints that support it. */
-  jsonMode?: boolean;
   timeoutMs?: number;
   /** Cancels the provider request when the originating chat request stops. */
   signal?: AbortSignal;
@@ -72,6 +71,34 @@ export class LlmStructuredOutputError extends Error {
 }
 
 const REQUEST_TIMEOUT_MS = 120_000;
+
+/** Provider statuses worth one more attempt; the single owner of this policy. */
+export const RETRYABLE_LLM_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+
+/**
+ * Classify failures from one structured LLM operation.
+ * @param caught unknown provider, JSON, or schema failure
+ * @returns true for temporary provider failures and repairable output errors
+ */
+export function isRetryableStructuredLlmError(caught: unknown): boolean {
+  if (caught instanceof LlmError) {
+    return RETRYABLE_LLM_STATUSES.has(caught.status);
+  }
+  return (
+    caught instanceof TypeError ||
+    caught instanceof SyntaxError ||
+    caught instanceof ZodError ||
+    caught instanceof LlmStructuredOutputError
+  );
+}
+
+/** Standard two-attempt policy for non-streamed structured model calls. */
+export const STRUCTURED_LLM_RETRY_OPTIONS = {
+  maxAttempts: 2,
+  initialDelayMs: 300,
+  maxDelayMs: 1_000,
+  shouldRetry: isRetryableStructuredLlmError,
+} as const;
 
 /**
  * Convert the app's stable message shape into LangChain message objects.
@@ -136,9 +163,11 @@ const providerFetch: typeof fetch = async (input, init) => {
 };
 
 /**
- * Create one provider model while leaving retries owned by app workflows.
+ * Create one provider model while leaving retries and the deadline owned by
+ * the app: the abort context every call runs under is the only timeout, so a
+ * timed-out call is always classified the same way.
  * @param config per-request BYOK endpoint, key, and model
- * @param options temperature, JSON mode, and timeout for this call
+ * @param options temperature for this call
  * @returns a configured adapter with provider retries disabled
  */
 function createModel(
@@ -149,45 +178,10 @@ function createModel(
     apiKey: config.apiKey,
     model: config.model,
     temperature: options.temperature,
-    timeout: options.timeoutMs ?? REQUEST_TIMEOUT_MS,
     maxRetries: 0,
     streamUsage: false,
     configuration: { baseURL: config.baseUrl, fetch: providerFetch },
-    ...(options.jsonMode
-      ? { modelKwargs: { response_format: { type: "json_object" } } }
-      : {}),
   });
-}
-
-interface AbortContext {
-  signal: AbortSignal;
-  timedOut: () => boolean;
-  cleanup: () => void;
-}
-
-/**
- * Combine the provider timeout with caller cancellation for one operation.
- * @param options supplies the caller signal and optional timeout override
- * @returns the merged signal, a timeout probe, and a listener cleanup
- */
-function createAbortContext(options: LlmCallOptions): AbortContext {
-  const controller = new AbortController();
-  let hasTimedOut = false;
-  const timer = setTimeout(() => {
-    hasTimedOut = true;
-    controller.abort(new DOMException("LLM request timed out", "TimeoutError"));
-  }, options.timeoutMs ?? REQUEST_TIMEOUT_MS);
-  const abortFromCaller = (): void => controller.abort(options.signal?.reason);
-  if (options.signal?.aborted) abortFromCaller();
-  else options.signal?.addEventListener("abort", abortFromCaller, { once: true });
-  return {
-    signal: controller.signal,
-    timedOut: () => hasTimedOut,
-    cleanup: () => {
-      clearTimeout(timer);
-      options.signal?.removeEventListener("abort", abortFromCaller);
-    },
-  };
 }
 
 /**
@@ -210,6 +204,45 @@ function normalizeProviderError(caught: unknown): LlmError {
 }
 
 /**
+ * Decide whether a failure is the model returning unparseable structured
+ * output rather than the provider failing.
+ * @param caught unknown failure raised while parsing structured output
+ * @returns true for JSON, schema, and LangChain output-parser failures
+ */
+function isStructuredOutputFailure(caught: unknown): boolean {
+  const name = caught instanceof Error ? caught.name : "";
+  const code =
+    typeof caught === "object" && caught !== null && "lc_error_code" in caught
+      ? String((caught as { lc_error_code: unknown }).lc_error_code)
+      : "";
+  return (
+    caught instanceof ZodError ||
+    caught instanceof SyntaxError ||
+    name === "OutputParserException" ||
+    code === "OUTPUT_PARSING_FAILURE"
+  );
+}
+
+/**
+ * Map one failed provider operation onto the app's error contract: the
+ * caller's own cancellation first, then the timeout, then the provider error.
+ * @param caught unknown failure raised by the operation
+ * @param options the call options carrying the caller's signal
+ * @param abort the merged abort context the operation ran under
+ * @returns the error to throw
+ */
+function classifyFailure(
+  caught: unknown,
+  options: LlmCallOptions,
+  abort: AbortContext,
+): Error {
+  if (options.signal?.aborted) options.signal.throwIfAborted();
+  if (abort.timedOut()) return new LlmTimeoutError();
+  if (caught instanceof LlmStructuredOutputError) return caught;
+  return normalizeProviderError(caught);
+}
+
+/**
  * Execute one LangChain invocation under the app's timeout/error contract.
  * @param options caller cancellation and timeout for this invocation
  * @param operation receives the merged signal and performs the provider call
@@ -219,13 +252,14 @@ async function invokeWithContract<T>(
   options: LlmCallOptions,
   operation: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-  const abort = createAbortContext(options);
+  const abort = createAbortContext(
+    options.timeoutMs ?? REQUEST_TIMEOUT_MS,
+    options.signal,
+  );
   try {
     return await operation(abort.signal);
   } catch (caught) {
-    if (options.signal?.aborted) options.signal.throwIfAborted();
-    if (abort.timedOut()) throw new LlmTimeoutError();
-    throw normalizeProviderError(caught);
+    throw classifyFailure(caught, options, abort);
   } finally {
     abort.cleanup();
   }
@@ -235,7 +269,7 @@ async function invokeWithContract<T>(
  * Non-streaming completion through LangChain's ChatOpenAI adapter.
  * @param config per-request BYOK endpoint, key, and model
  * @param messages the conversation to send
- * @param options temperature, JSON mode, timeout, and cancellation
+ * @param options temperature, timeout, and cancellation
  * @returns the model's reply as plain text
  */
 export async function chatCompletion(
@@ -266,37 +300,22 @@ export async function structuredChatCompletion<Schema extends z.ZodTypeAny>(
   schema: Schema,
   options: StructuredLlmCallOptions = {},
 ): Promise<z.infer<Schema>> {
-  const abort = createAbortContext(options);
-  try {
+  return invokeWithContract(options, async (signal) => {
     const runnable = createModel(config, options).withStructuredOutput<
       z.infer<Schema>
     >(schema, {
       method: "jsonMode",
       name: options.schemaName,
     });
-    return await runnable.invoke(toLangChainMessages(messages), {
-      signal: abort.signal,
-    });
-  } catch (caught) {
-    if (options.signal?.aborted) options.signal.throwIfAborted();
-    if (abort.timedOut()) throw new LlmTimeoutError();
-    const name = caught instanceof Error ? caught.name : "";
-    const code =
-      typeof caught === "object" && caught !== null && "lc_error_code" in caught
-        ? String((caught as { lc_error_code: unknown }).lc_error_code)
-        : "";
-    if (
-      caught instanceof z.ZodError ||
-      caught instanceof SyntaxError ||
-      name === "OutputParserException" ||
-      code === "OUTPUT_PARSING_FAILURE"
-    ) {
-      throw new LlmStructuredOutputError(caught);
+    try {
+      return await runnable.invoke(toLangChainMessages(messages), { signal });
+    } catch (caught) {
+      if (isStructuredOutputFailure(caught)) {
+        throw new LlmStructuredOutputError(caught);
+      }
+      throw caught;
     }
-    throw normalizeProviderError(caught);
-  } finally {
-    abort.cleanup();
-  }
+  });
 }
 
 /**
@@ -311,7 +330,10 @@ export async function* streamChatCompletion(
   messages: LlmMessage[],
   options: LlmCallOptions = {},
 ): AsyncGenerator<string> {
-  const abort = createAbortContext(options);
+  const abort = createAbortContext(
+    options.timeoutMs ?? REQUEST_TIMEOUT_MS,
+    options.signal,
+  );
   try {
     const stream = await createModel(config, options).stream(
       toLangChainMessages(messages),
@@ -322,9 +344,7 @@ export async function* streamChatCompletion(
       if (delta) yield delta;
     }
   } catch (caught) {
-    if (options.signal?.aborted) options.signal.throwIfAborted();
-    if (abort.timedOut()) throw new LlmTimeoutError();
-    throw normalizeProviderError(caught);
+    throw classifyFailure(caught, options, abort);
   } finally {
     abort.cleanup();
   }

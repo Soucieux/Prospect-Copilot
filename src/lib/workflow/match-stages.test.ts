@@ -9,6 +9,7 @@ import type { WorkflowRuntimeContext } from "@/lib/workflow/context";
 import {
   clarifyMatchNode,
   formatMatchNode,
+  matchRequestFrom,
   selectMatchEntry,
   selectResolvedCandidates,
 } from "@/lib/workflow/match";
@@ -56,7 +57,6 @@ function recordingContext(): {
 
 const POOL: CandidatePool = {
   candidates: [{ url: "https://northwind.example.com", nameHint: "Northwind" }],
-  urls: ["https://northwind.example.com"],
   labels: MATCH_REPORT_LABELS,
 };
 
@@ -89,6 +89,38 @@ function reportOf(
 ): ReportState {
   return update.report as ReportState;
 }
+
+describe("matchRequestFrom", () => {
+  it("carries the routed request fields through to the match stages", () => {
+    const request = matchRequestFrom(
+      matchState({
+        routing: routing({
+          sellingContext: "payroll software",
+          candidates: ["Acme Corp"],
+          matchDirection: "buy",
+          matchLocation: "Leeds",
+        }),
+      }),
+    );
+    expect(request).toEqual({
+      sellingContext: "payroll software",
+      candidates: ["Acme Corp"],
+      requesterMessage: "we sell payroll software",
+      responseLanguage: "English",
+      runtimeLabels: RUNTIME_LABEL_DEFAULTS,
+      matchDirection: "buy",
+      matchLocation: "Leeds",
+    });
+  });
+
+  it("defaults every routing field when routing is missing", () => {
+    const request = matchRequestFrom(matchState({ routing: undefined }));
+    expect(request.sellingContext).toBeNull();
+    expect(request.candidates).toBeNull();
+    expect(request.matchDirection).toBe("sell");
+    expect(request.matchLocation).toBeNull();
+  });
+});
 
 describe("selectMatchEntry", () => {
   it("asks for clarification when neither a product nor candidates were named", () => {
@@ -170,7 +202,7 @@ describe("selectResolvedCandidates", () => {
   it("skips scoring when discovery found nothing", () => {
     expect(
       selectResolvedCandidates(
-        matchState({ candidatePool: { ...POOL, candidates: [], urls: [] } }),
+        matchState({ candidatePool: { ...POOL, candidates: [] } }),
       ),
     ).toBe(WORKFLOW_NODE.matchFormat);
   });
@@ -209,19 +241,25 @@ describe("formatMatchNode", () => {
     expect(update.status).toBe(WORKFLOW_STATUS.completed);
     expect(reportOf(update).kind).toBe("match");
     expect(reportOf(update).matches?.[0]?.companyName).toBe("Northwind Trading");
-    expect(events.filter((event) => event.type === "report")).toHaveLength(1);
+    expect(events.map((event) => event.type)).toEqual(["phase", "report"]);
+    expect(events[0]).toEqual({
+      type: "phase",
+      phase: "done",
+      detail: RUNTIME_LABEL_DEFAULTS.matchComplete,
+    });
   });
 
-  it("still produces a report when scoring never ran", () => {
-    const { context } = recordingContext();
+  it("still produces a report, without a second completion, when nothing resolved", () => {
+    const { context, events } = recordingContext();
     const update = formatMatchNode(
-      matchState({ candidatePool: { ...POOL, candidates: [], urls: [] } }),
+      matchState({ candidatePool: { ...POOL, candidates: [] } }),
       context,
     );
 
     expect(update.status).toBe(WORKFLOW_STATUS.completed);
     expect(reportOf(update).kind).toBe("match");
     expect(reportOf(update).matches).toEqual([]);
+    expect(events.map((event) => event.type)).toEqual(["report"]);
   });
 
   it("fails loudly when the pool the stage depends on is missing", () => {

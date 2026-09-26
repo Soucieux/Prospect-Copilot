@@ -24,6 +24,8 @@ export interface ProspectExtraction {
     numberOfEmployees?: number | string;
     address?: string;
   } | null;
+  /** The JSON-LD headcount as one conservative number, when it states one. */
+  employeeCount: number | undefined;
   internalLinks: string[];
 }
 
@@ -49,14 +51,39 @@ const TECH_SIGNATURES: { tech: string; pattern: RegExp }[] = [
 
 const SOCIAL_PATTERNS: { platform: string; pattern: RegExp }[] = [
   { platform: "linkedin", pattern: /linkedin\.com\/(company|in)\//i },
-  { platform: "twitter", pattern: /(twitter|x)\.com\//i },
+  // Anchored to a label boundary: a bare "x.com/" also ends dropbox.com/,
+  // wix.com/ and every other domain whose name finishes in x.
+  { platform: "twitter", pattern: /(^|[/.])(twitter|x)\.com\//i },
   { platform: "facebook", pattern: /facebook\.com\//i },
   { platform: "github", pattern: /github\.com\//i },
   { platform: "youtube", pattern: /youtube\.com\//i },
 ];
 
+/**
+ * Path words that identify each subpage worth fetching after the homepage.
+ * The pricing words also decide whether the homepage links to pricing at all,
+ * so the flag and the fetch can never disagree about what pricing looks like.
+ */
+const SUBPAGE_KEYWORDS = {
+  about: ["about", "company", "about-us"],
+  team: ["team", "leadership", "people"],
+  pricing: ["pricing", "plans", "packages"],
+  careers: ["careers", "jobs", "join-us", "hiring"],
+  contact: ["contact", "get-in-touch", "demo"],
+  blog: ["blog", "resources", "insights", "news"],
+};
+
+// The terminator accepts ? and # as well as / and end-of-string: marketing
+// sites routinely hang tracking parameters off their own nav links, and
+// requiring a bare path silently dropped those pages from discovery.
+export const SUBPAGE_PATTERNS: { name: string; pattern: RegExp }[] =
+  Object.entries(SUBPAGE_KEYWORDS).map(([name, words]) => ({
+    name,
+    pattern: new RegExp(`\\/(${words.join("|")})(\\/|\\?|#|$)`, "i"),
+  }));
+
 const EMAIL_PATTERN = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-const PRICING_HREF_PATTERN = /pricing|plans|packages/i;
+const PRICING_HREF_PATTERN = new RegExp(SUBPAGE_KEYWORDS.pricing.join("|"), "i");
 const ENTERPRISE_PATTERN = /enterprise|custom pricing|contact (us|sales) for/i;
 
 const MAX_SOCIAL_PROFILES = 8;
@@ -67,16 +94,29 @@ const MAX_EMAILS = 20;
 const MAX_INTERNAL_LINKS = 250;
 
 /**
+ * Parse a page once for every extractor that reads it. Pass the result to
+ * `analyzeProspect`, then `findContacts`, then `htmlToText`, in that order:
+ * the later two remove markup they do not read, so an earlier reader must
+ * already have seen the whole document.
+ * @param html raw page HTML
+ * @returns the loaded document
+ */
+export function loadPage(html: string): cheerio.CheerioAPI {
+  return cheerio.load(html);
+}
+
+/**
  * Run all extractions over a fetched homepage.
  * @param html raw homepage HTML
  * @param pageUrl final URL after redirects (for resolving links)
+ * @param $ the page already loaded with `loadPage`, when a caller shares it
  * @returns the structured extraction result
  */
 export function analyzeProspect(
   html: string,
   pageUrl: string,
+  $: cheerio.CheerioAPI = loadPage(html),
 ): ProspectExtraction {
-  const $ = cheerio.load(html);
   // Collected once: the three collectors below each used to walk every anchor
   // on the page independently.
   const anchors = $("a[href]")
@@ -85,9 +125,11 @@ export function analyzeProspect(
   const jsonLdOrg = extractJsonLdOrg($);
   const pricingPageUrl = findPricingLink(anchors, pageUrl);
   return {
+    // Blank values fall through: an empty name would otherwise title the
+    // report, and the URL is the honest fallback when no name is published.
     companyName:
-      jsonLdOrg?.name ??
-      $('meta[property="og:site_name"]').attr("content") ??
+      jsonLdOrg?.name?.trim() ||
+      $('meta[property="og:site_name"]').attr("content")?.trim() ||
       null,
     title: $("title").text().trim() || null,
     description:
@@ -101,6 +143,7 @@ export function analyzeProspect(
     pricingPageUrl,
     enterpriseTierListed: ENTERPRISE_PATTERN.test(html),
     jsonLdOrg,
+    employeeCount: parseEmployeeCount(jsonLdOrg?.numberOfEmployees),
     internalLinks: extractInternalLinks(anchors, pageUrl),
   };
 }
@@ -216,6 +259,9 @@ function extractInternalLinks(hrefs: string[], pageUrl: string): string[] {
   const origin = new URL(pageUrl).origin;
   const found = new Set<string>();
   for (const href of hrefs) {
+    // The first links in document order are kept, so once the budget is full
+    // no later anchor can change the result.
+    if (found.size >= MAX_INTERNAL_LINKS) break;
     if (href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) {
       continue;
     }
@@ -229,7 +275,7 @@ function extractInternalLinks(hrefs: string[], pageUrl: string): string[] {
       // Unparseable hrefs are skipped.
     }
   }
-  return [...found].slice(0, MAX_INTERNAL_LINKS);
+  return [...found];
 }
 
 /**

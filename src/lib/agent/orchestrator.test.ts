@@ -1,18 +1,18 @@
 import { describe, expect, it } from "vitest";
-import {
-  scoreProspectBriefing,
-  SUBPAGE_PATTERNS,
-} from "./orchestrator";
+import { scoreProspectBriefing, type DiscoveryBriefing } from "./orchestrator";
 import {
   PROSPECT_REPORT_LABELS,
   assembleReport,
 } from "./prospect-report";
 import { SUBAGENTS } from "@/lib/skills/subagents";
-import { scoreMeddic } from "@/lib/scoring/lead-scorer";
+import {
+  scoreMeddic,
+  type ProspectComposite,
+} from "@/lib/scoring/lead-scorer";
 import { RUNTIME_LABEL_DEFAULTS } from "@/lib/localization";
 import type { SubagentResult, SynthesisResult } from "./schemas";
 
-const BRIEFING = {
+const BRIEFING: DiscoveryBriefing = {
   url: "https://acme.example.com",
   companyName: "Acme Corp",
   title: "Acme",
@@ -23,20 +23,21 @@ const BRIEFING = {
   hasPricingPage: true,
   enterpriseTierListed: false,
   jsonLdOrg: null,
+  employeeCount: undefined,
   pages: [],
   contacts: [],
 };
 
-const COMPOSITE = {
+const COMPOSITE: ProspectComposite = {
   score: 72,
-  grade: "B" as const,
-  confidence: "High" as const,
+  grade: "B",
+  confidence: "High",
   weighted: [
-    { category: "Company Fit", score: 80, weight: 0.25 },
-    { category: "Contact Access", score: 70, weight: 0.2 },
-    { category: "Opportunity Quality", score: 65, weight: 0.2 },
-    { category: "Competitive Position", score: 60, weight: 0.15 },
-    { category: "Outreach Readiness", score: 75, weight: 0.2 },
+    { category: "companyFit", score: 80, weight: 0.25 },
+    { category: "contactAccess", score: 70, weight: 0.2 },
+    { category: "opportunityQuality", score: 65, weight: 0.2 },
+    { category: "competitivePosition", score: 60, weight: 0.15 },
+    { category: "outreachReadiness", score: 75, weight: 0.2 },
   ],
   degradedCategories: ["competitivePosition"],
 };
@@ -79,40 +80,6 @@ const BASE_SYNTHESIS: Omit<SynthesisResult, "labels"> = {
     cta: "Open to a call?",
   },
 };
-
-describe("SUBPAGE_PATTERNS", () => {
-  /**
-   * Find the subpage name a candidate link would be discovered as.
-   * @param url absolute same-origin candidate link
-   * @returns the matching subpage name, or null when none matches
-   */
-  const matchName = (url: string): string | null =>
-    SUBPAGE_PATTERNS.find((entry) => entry.pattern.test(url))?.name ?? null;
-
-  it("matches bare paths and trailing slashes", () => {
-    expect(matchName("https://acme.example.com/pricing")).toBe("pricing");
-    expect(matchName("https://acme.example.com/about/")).toBe("about");
-  });
-
-  it("still matches when a tracking query string follows the path", () => {
-    // buffer.com hangs ?cta=... off its own nav links; requiring a bare path
-    // dropped its pricing and about pages from discovery entirely.
-    expect(
-      matchName("https://buffer.com/pricing?cta=bufferSite-globalNav-pricing"),
-    ).toBe("pricing");
-    expect(matchName("https://acme.example.com/careers?utm_source=nav")).toBe(
-      "careers",
-    );
-  });
-
-  it("still matches when a fragment follows the path", () => {
-    expect(matchName("https://acme.example.com/contact#form")).toBe("contact");
-  });
-
-  it("does not match an unrelated path that merely contains the word", () => {
-    expect(matchName("https://acme.example.com/pricing-guide-for-teams")).toBeNull();
-  });
-});
 
 describe("scoreProspectBriefing", () => {
   /**
@@ -182,14 +149,15 @@ describe("scoreProspectBriefing", () => {
     const { composite } = scoreProspectBriefing(
       BRIEFING,
       resultsWithFailures(["companyFit"]),
+      "payroll software",
     );
     expect(composite.degradedCategories).toEqual(["companyFit"]);
     expect(
-      composite.weighted.find((entry) => entry.category === "Company Fit")?.score,
+      composite.weighted.find((entry) => entry.category === "companyFit")?.score,
     ).toBe(50);
     expect(
       composite.weighted
-        .filter((entry) => entry.category !== "Company Fit")
+        .filter((entry) => entry.category !== "companyFit")
         .map((entry) => entry.score),
     ).toEqual([70, 70, 70, 70]);
     // 50 x 0.25 for the failed category plus 70 x 0.75 for the other four.
@@ -235,6 +203,15 @@ describe("scoreProspectBriefing", () => {
     // Budget still comes from the pricing page the briefing found.
     expect(bant.dimensions.find((dimension) => dimension.name === "budget")?.score)
       .toBeGreaterThan(0);
+  });
+
+  it("scores competitive position neutral until the user says what they sell", () => {
+    const positionOf = (sellingContext: string | null): number | undefined =>
+      scoreProspectBriefing(BRIEFING, resultsWithSignals(), sellingContext)
+        .composite.weighted.find((row) => row.category === "competitivePosition")
+        ?.score;
+    expect(positionOf(null)).toBe(50);
+    expect(positionOf("payroll software")).toBe(70);
   });
 
   it("raises MEDDIC completeness once those signals arrive", () => {
@@ -458,6 +435,44 @@ describe("assembleReport fallbacks", () => {
     expect(markdown).toContain("https://acme.example.com");
   });
 
+  it("keeps a company name verbatim when it looks like a replacement pattern", () => {
+    const markdown = assembleReport(
+      { ...BRIEFING, companyName: "Cash $& Carry" },
+      RESULTS,
+      COMPOSITE,
+      BASE_SYNTHESIS,
+      BANT,
+      null,
+    );
+    expect(markdown).toContain("# Prospect Analysis: Cash $& Carry");
+  });
+
+  it("escapes a pipe in scraped text so it cannot split a table row", () => {
+    const markdown = assembleReport(
+      {
+        ...BRIEFING,
+        contacts: [
+          {
+            name: "Jane Doe",
+            title: "Founder | CEO",
+            seniority: "C-Suite",
+            buyingRole: "Economic Buyer",
+            linkedin: null,
+            source: "html",
+          },
+        ],
+      },
+      RESULTS,
+      COMPOSITE,
+      BASE_SYNTHESIS,
+      BANT,
+      null,
+    );
+    expect(markdown).toContain(
+      "| Jane Doe | Founder \\| CEO | C-Suite | Economic Buyer | - |",
+    );
+  });
+
   it("omits the decision-maker map when discovery found no contacts", () => {
     const markdown = assembleReport(
       { ...BRIEFING, contacts: [] },
@@ -487,18 +502,6 @@ describe("assembleReport fallbacks", () => {
     );
     expect(markdown).toContain("## Company Research");
     expect(markdown).not.toContain("provider down");
-  });
-
-  it("names a degraded category it cannot translate by its own key", () => {
-    const markdown = assembleReport(
-      BRIEFING,
-      RESULTS,
-      { ...COMPOSITE, degradedCategories: ["notARealCategory"] },
-      BASE_SYNTHESIS,
-      BANT,
-      null,
-    );
-    expect(markdown).toContain("notARealCategory");
   });
 
   it("translates a degraded category it does recognize", () => {

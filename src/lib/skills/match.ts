@@ -3,20 +3,36 @@
  * transaction - buyers in sell mode or sellers in buy mode.
  */
 
-import { WORKFLOW_PHASE } from "@/lib/workflow/constants";
 import { z } from "zod";
-import { fetchWithVariants, normalizeUrl } from "@/lib/extract/fetch-page";
-import { analyzeProspect } from "@/lib/extract/analyze-prospect";
-import { htmlToText } from "@/lib/extract/html-to-text";
-import { structuredChatCompletion, type LlmConfig } from "@/lib/llm";
-import type { EmitCallback, MatchDirection } from "@/lib/agent/schemas";
-import { NEVER_FABRICATE_RULES } from "@/lib/skills/subagents";
-import { isLikelyCompanyUrl, resolveCompanyUrl } from "@/lib/agent/router";
 import {
+  CHAT_PHASE,
+  type EmitCallback,
+  type MatchDirection,
+} from "@/lib/agent/schemas";
+import type { MatchCandidate, MatchCardLabels } from "@/lib/chat-types";
+import { fetchWithVariants, normalizeUrl } from "@/lib/extract/fetch-page";
+import { analyzeProspect, loadPage } from "@/lib/extract/analyze-prospect";
+import {
+  dedupeByHost,
+  isLikelyCompanyUrl,
+  looksLikeWebAddress,
+} from "@/lib/extract/company-url";
+import { htmlToText } from "@/lib/extract/html-to-text";
+import {
+  STRUCTURED_LLM_RETRY_OPTIONS,
+  structuredChatCompletion,
+  type LlmConfig,
+} from "@/lib/llm";
+import { resolveCompanyUrl } from "@/lib/agent/router";
+import {
+  BUYING_CONTEXT_MARKER,
+  EVIDENCE_PROMPT_RULES,
   NOT_PUBLICLY_AVAILABLE,
+  SELLING_CONTEXT_MARKER,
   UNTRUSTED_WEB_CONTENT_RULES,
 } from "@/lib/constants";
 import {
+  RUNTIME_LABEL_DEFAULTS,
   formatRuntimeLabel,
   mergeLabelSet,
   responseLanguageContext,
@@ -24,10 +40,7 @@ import {
 } from "@/lib/localization";
 import { runGraphWorkerPool } from "@/lib/graph-worker-pool";
 import { emitAgentProgress } from "@/lib/agent/progress";
-import {
-  STRUCTURED_LLM_RETRY_OPTIONS,
-  retryOperation,
-} from "@/lib/retry";
+import { retryOperation } from "@/lib/retry";
 
 /**
  * The copy one match report needs, declared field by field rather than as a
@@ -51,7 +64,6 @@ export interface MatchReportLabels {
   auditPrompt: string;
   auditHint: string;
   auditRequestTemplate: string;
-  nudge: string;
 }
 
 /** English defaults for every static label in the match report and cards. */
@@ -65,17 +77,15 @@ export const MATCH_REPORT_LABELS: MatchReportLabels = {
   rankedTemplateSingular: "Ranked {ranked} of {total} candidate considered:",
   rankedTemplatePlural: "Ranked {ranked} of {total} candidates considered:",
   locationLabel: "Location",
-  foundedLabel: "Founded",
-  fitLabel: "Fit",
+  foundedLabel: RUNTIME_LABEL_DEFAULTS.foundedLabel,
+  fitLabel: RUNTIME_LABEL_DEFAULTS.fitLabel,
   omittedTemplateSingular:
     "{count} lower-scoring candidate omitted from this list.",
   omittedTemplatePlural:
     "{count} lower-scoring candidates omitted from this list.",
   auditPrompt: "Ask about any one of these by name for a full prospect audit.",
-  auditHint: "Click for a full prospect audit →",
-  auditRequestTemplate: "Analyze {url} as a prospect",
-  nudge:
-    'Tell me what you sell (e.g. "we sell payroll software for mid-market companies") and I can find and rank the best-fit companies for it.',
+  auditHint: RUNTIME_LABEL_DEFAULTS.auditHint,
+  auditRequestTemplate: RUNTIME_LABEL_DEFAULTS.auditRequestTemplate,
 };
 
 /** English report/card copy for buy-direction matches; keys mirror sell mode. */
@@ -98,8 +108,6 @@ const BUY_MATCH_REPORT_LABELS: MatchReportLabels = {
   auditPrompt: "Open a listed website or ask about any seller by name.",
   auditHint: "Click for a full seller review →",
   auditRequestTemplate: "Analyze {url} as a supplier",
-  nudge:
-    'Tell me what you want to buy (e.g. "where can I buy wool blankets?") and I can find and rank the best places for it.',
 };
 
 /**
@@ -107,23 +115,30 @@ const BUY_MATCH_REPORT_LABELS: MatchReportLabels = {
  * @param direction whether candidates should buy from or sell to the user
  * @returns the buy-mode label set for "buy", otherwise the sell-mode set
  */
-function reportLabelsFor(direction: MatchDirection): MatchReportLabels {
+export function reportLabelsFor(direction: MatchDirection): MatchReportLabels {
   return direction === "buy" ? BUY_MATCH_REPORT_LABELS : MATCH_REPORT_LABELS;
 }
 
-export interface CandidateScore {
-  url: string;
-  companyName: string;
-  score: number;
-  /** Factual summary of what the company does, for someone unfamiliar with it. */
-  description: string;
-  /** Judgment of how well the company fits the requested match direction. */
-  fitReason: string;
-  /** From the page's own structured data, when present. */
-  location: string | null;
-  /** From the page's own structured data, when present. */
-  founded: string | null;
+/** One match request as the workflow validated it, shared by every stage. */
+export interface MatchRequest {
+  /** The product/ICP being sold or bought, or null when not yet known. */
+  sellingContext: string | null;
+  /** Companies named directly in the message, or null for discovery mode. */
+  candidates: string[] | null;
+  /** The requester's own message, used only for language and geography. */
+  requesterMessage: string;
+  /** Language recognized from the latest user message. */
+  responseLanguage: string;
+  /** Translated progress and card labels for this request. */
+  runtimeLabels: RuntimeLabels;
+  /** Whether candidates should buy the product or sell it to the user. */
+  matchDirection: MatchDirection;
+  /** Explicit city, region, or country, when the user asked for one. */
+  matchLocation: string | null;
 }
+
+/** A scored candidate, exactly as the wire carries it to the cards. */
+export type CandidateScore = MatchCandidate;
 
 interface CandidateIdentifier {
   identifier: string;
@@ -138,7 +153,6 @@ export interface ResolvedCandidate {
 /** Candidate discovery output retained between match graph stages. */
 export interface CandidatePool {
   candidates: ResolvedCandidate[];
-  urls: string[];
   labels: MatchReportLabels;
 }
 
@@ -153,12 +167,7 @@ export interface MatchSkillResult {
   markdown: string;
   title: string;
   matches: CandidateScore[];
-  cardLabels: {
-    founded: string;
-    fit: string;
-    auditHint: string;
-    auditRequestTemplate: string;
-  };
+  cardLabels: MatchCardLabels;
 }
 
 const MAX_CANDIDATES_TO_SCORE = 12;
@@ -185,9 +194,9 @@ Never use a hostname, URL, webpage section name, or generic page title as the
 companyName. Prefer the CANDIDATE NAME HINT when it agrees with the homepage;
 otherwise use the strongest organization-name evidence in the briefing.
 Follow MATCH DIRECTION exactly:
-- sell: judge whether the candidate is likely to buy WHAT WE SELL.
-- buy: judge whether the candidate is a credible place to buy WHAT WE WANT TO
-  BUY, based only on evidence that it sells, distributes, supplies, or lists
+- sell: judge whether the candidate is likely to buy ${SELLING_CONTEXT_MARKER}.
+- buy: judge whether the candidate is a credible place to buy ${BUYING_CONTEXT_MARKER},
+  based only on evidence that it sells, distributes, supplies, or lists
   that product.
 When a REQUESTED LOCATION is provided, treat geographic fit as a required part
 of the score and explain it in fitReason:
@@ -199,7 +208,7 @@ Do not claim geographic availability without evidence in the briefing. When
 location fit is not publicly verifiable, say so and lower the score.
 When the product context is absent, judge only generic company relevance and
 readiness signals - do not assume any particular product category.
-${NEVER_FABRICATE_RULES}
+${EVIDENCE_PROMPT_RULES}
 When a LABELS object is given in the user message, also translate each of
 its values into the same language as your description/fitReason above (echo
 unchanged if that's already English) and return it under "labels" with the
@@ -249,23 +258,17 @@ const CANDIDATE_SUGGESTIONS_SCHEMA = z.object({
  * resolved and verified the same way as a user-supplied candidate.
  * @param config LLM credentials
  * @param sellingContext product context extracted by the router
- * @param requesterMessage latest user-authored message
- * @param responseLanguage language recognized from the latest message
- * @param matchDirection whether candidates are buyers or sellers
- * @param matchLocation explicit geographic requirement, when supplied
+ * @param request the validated match request
  * @param signal cancels candidate discovery
  * @returns suggested identifiers and localized report labels
  */
 async function suggestCandidates(
   config: LlmConfig,
   sellingContext: string,
-  requesterMessage: string,
-  responseLanguage: string,
-  matchDirection: MatchDirection = "sell",
-  matchLocation: string | null = null,
+  request: MatchRequest,
   signal?: AbortSignal,
 ): Promise<{ identifiers: CandidateIdentifier[]; labels: MatchReportLabels }> {
-  const defaultLabels = reportLabelsFor(matchDirection);
+  const defaultLabels = reportLabelsFor(request.matchDirection);
   try {
     const parsed = await retryOperation(
       () =>
@@ -275,7 +278,7 @@ async function suggestCandidates(
             { role: "system", content: CANDIDATE_SUGGESTION_SYSTEM_PROMPT },
             {
               role: "user",
-              content: `${responseLanguageContext(responseLanguage, requesterMessage)}\n\nMATCH DIRECTION: ${matchDirection}\n\nPRODUCT CONTEXT: ${sellingContext}\n\nREQUESTED LOCATION: ${matchLocation ?? "not specified"}\n\nLABELS: ${JSON.stringify(defaultLabels)}`,
+              content: `${responseLanguageContext(request.responseLanguage, request.requesterMessage)}\n\nMATCH DIRECTION: ${request.matchDirection}\n\nPRODUCT CONTEXT: ${sellingContext}\n\nREQUESTED LOCATION: ${request.matchLocation ?? "not specified"}\n\nLABELS: ${JSON.stringify(defaultLabels)}`,
             },
           ],
           CANDIDATE_SUGGESTIONS_SCHEMA,
@@ -300,26 +303,17 @@ async function suggestCandidates(
  * Resolve the pool of candidate URLs to score: the user-supplied list when
  * given, otherwise LLM-suggested candidates grounded in the product context.
  * @param config LLM credentials
- * @param candidates company names/URLs named directly in the message
- * @param sellingContext product context used to request suggestions
- * @param requesterMessage latest user-authored message
- * @param responseLanguage language recognized from the latest message
- * @param matchDirection whether candidates are buyers or sellers
- * @param matchLocation explicit geographic requirement, when supplied
+ * @param request the validated match request
  * @param signal cancels candidate resolution
- * @returns deduped candidate URLs and any labels localized during discovery
+ * @returns deduped candidates and any labels localized during discovery
  */
 export async function resolveCandidates(
   config: LlmConfig,
-  candidates: string[] | null,
-  sellingContext: string | null,
-  requesterMessage: string = "",
-  responseLanguage: string = "English",
-  matchDirection: MatchDirection = "sell",
-  matchLocation: string | null = null,
+  request: MatchRequest,
   signal?: AbortSignal,
 ): Promise<CandidatePool> {
-  const defaultLabels = reportLabelsFor(matchDirection);
+  const defaultLabels = reportLabelsFor(request.matchDirection);
+  const { candidates, sellingContext } = request;
   const suggested =
     candidates && candidates.length > 0
       ? {
@@ -330,25 +324,10 @@ export async function resolveCandidates(
           labels: defaultLabels,
         }
       : sellingContext
-        ? await suggestCandidates(
-            config,
-            sellingContext,
-            requesterMessage,
-            responseLanguage,
-            matchDirection,
-            matchLocation,
-            signal,
-          )
+        ? await suggestCandidates(config, sellingContext, request, signal)
         : { identifiers: [], labels: defaultLabels };
-  if (suggested.identifiers.length === 0) {
-    return { candidates: [], urls: [], labels: suggested.labels };
-  }
-  const identifiersToResolve = suggested.identifiers.slice(
-    0,
-    MAX_CANDIDATES_TO_SCORE,
-  );
   const resolved = await runGraphWorkerPool(
-    identifiersToResolve,
+    suggested.identifiers.slice(0, MAX_CANDIDATES_TO_SCORE),
     MAX_CANDIDATE_CONCURRENCY,
     async ({ identifier, nameHint }) => {
       const url = await resolveOneCandidate(config, identifier, signal);
@@ -356,14 +335,12 @@ export async function resolveCandidates(
     },
     signal,
   );
-  const resolvedCandidates = dedupeByHost(
-    resolved.filter(
-      (candidate): candidate is ResolvedCandidate => candidate !== null,
-    ),
-  ).slice(0, MAX_CANDIDATES_TO_SCORE);
   return {
-    candidates: resolvedCandidates,
-    urls: resolvedCandidates.map((candidate) => candidate.url),
+    candidates: dedupeByHost(
+      resolved.filter(
+        (candidate): candidate is ResolvedCandidate => candidate !== null,
+      ),
+    ),
     labels: suggested.labels,
   };
 }
@@ -371,32 +348,21 @@ export async function resolveCandidates(
 /**
  * Resolve the candidate pool while emitting the existing discovery lifecycle.
  * @param config LLM credentials
- * @param sellingContext product context used for candidate suggestions
- * @param candidates user-named candidates, when supplied
+ * @param request the validated match request
  * @param emit progress callback
- * @param requesterMessage latest user message
- * @param responseLanguage detected response language
- * @param runtimeLabels localized progress labels
- * @param matchDirection whether candidates buy or sell the product
- * @param matchLocation explicit geographic constraint
  * @param signal cancels discovery and URL resolution
  * @returns resolved, deduplicated candidate pool
  */
 export async function resolveMatchCandidatesStage(
   config: LlmConfig,
-  sellingContext: string | null,
-  candidates: string[] | null,
+  request: MatchRequest,
   emit: EmitCallback,
-  requesterMessage: string,
-  responseLanguage: string,
-  runtimeLabels: RuntimeLabels,
-  matchDirection: MatchDirection,
-  matchLocation: string | null,
   signal?: AbortSignal,
 ): Promise<CandidatePool> {
+  const { candidates, matchDirection, runtimeLabels } = request;
   emit({
     type: "phase",
-    phase: WORKFLOW_PHASE.discovery,
+    phase: CHAT_PHASE.discovery,
     detail: candidates?.length
       ? candidates.length === 1
         ? runtimeLabels.resolvingCandidatesSingular
@@ -407,20 +373,11 @@ export async function resolveMatchCandidatesStage(
         ? runtimeLabels.askingBuyCandidateSuggestions
         : runtimeLabels.askingCandidateSuggestions,
   });
-  const candidatePool = await resolveCandidates(
-    config,
-    candidates,
-    sellingContext,
-    requesterMessage,
-    responseLanguage,
-    matchDirection,
-    matchLocation,
-    signal,
-  );
+  const candidatePool = await resolveCandidates(config, request, signal);
   if (candidatePool.candidates.length === 0) {
     emit({
       type: "phase",
-      phase: WORKFLOW_PHASE.done,
+      phase: CHAT_PHASE.done,
       detail:
         matchDirection === "buy"
           ? runtimeLabels.noBuyCandidates
@@ -433,38 +390,27 @@ export async function resolveMatchCandidatesStage(
 /**
  * Score resolved candidates with bounded graph workers and partial fallback.
  * @param config LLM credentials
+ * @param request the validated match request
  * @param candidatePool resolved candidate stage output
- * @param sellingContext product context for fit scoring
- * @param namedCandidates user-named candidates, when supplied
  * @param emit progress callback
- * @param requesterMessage latest user message
- * @param responseLanguage detected response language
- * @param runtimeLabels localized progress labels
- * @param matchDirection whether candidates buy or sell the product
- * @param matchLocation explicit geographic constraint
  * @param signal cancels scoring workers
  * @returns successfully scored candidates and localized report labels
  */
 export async function scoreMatchCandidatesStage(
   config: LlmConfig,
+  request: MatchRequest,
   candidatePool: CandidatePool,
-  sellingContext: string | null,
-  namedCandidates: string[] | null,
   emit: EmitCallback,
-  requesterMessage: string,
-  responseLanguage: string,
-  runtimeLabels: RuntimeLabels,
-  matchDirection: MatchDirection,
-  matchLocation: string | null,
   signal?: AbortSignal,
 ): Promise<CandidateScoreBatch> {
+  const { runtimeLabels } = request;
   const resolvedCandidates = candidatePool.candidates;
   if (resolvedCandidates.length === 0) {
     return { scored: [], labels: candidatePool.labels };
   }
   emit({
     type: "phase",
-    phase: WORKFLOW_PHASE.analysis,
+    phase: CHAT_PHASE.analysis,
     detail:
       resolvedCandidates.length === 1
         ? runtimeLabels.scoringCandidateSingular
@@ -475,30 +421,19 @@ export async function scoreMatchCandidatesStage(
   resolvedCandidates.forEach(({ url }) =>
     emitAgentProgress(emit, runtimeLabels, url, "running"),
   );
-  const defaultLabels = reportLabelsFor(matchDirection);
-  const translateEveryScore = Boolean(namedCandidates?.length);
+  const defaultLabels = reportLabelsFor(request.matchDirection);
+  const translateEveryScore = Boolean(request.candidates?.length);
   const scoredResults = await runGraphWorkerPool(
     resolvedCandidates,
     MAX_CANDIDATE_CONCURRENCY,
-    async ({ url, nameHint }, index) => {
-      try {
-        return await quickScoreCandidate(
-          config,
-          sellingContext,
-          url,
-          requesterMessage,
-          responseLanguage,
-          translateEveryScore || index === 0 ? defaultLabels : undefined,
-          nameHint,
-          matchDirection,
-          matchLocation,
-          signal,
-        );
-      } catch {
-        signal?.throwIfAborted();
-        return null;
-      }
-    },
+    (candidate, index) =>
+      quickScoreCandidate(
+        config,
+        candidate,
+        request,
+        translateEveryScore || index === 0 ? defaultLabels : undefined,
+        signal,
+      ),
     signal,
   );
   signal?.throwIfAborted();
@@ -546,88 +481,42 @@ async function resolveOneCandidate(
 }
 
 /**
- * Distinguish an actual URL/domain from a bare company or product name.
- * URL() accepts any no-space Unicode word as an internationalized hostname
- * and converts it to Punycode, so parsing alone is not a sufficient test.
- * @param raw candidate identifier from the user or discovery model
- * @returns true only for an explicit http(s) URL or a dotted domain
- */
-function looksLikeWebAddress(raw: string): boolean {
-  const value = raw.trim();
-  if (/^https?:\/\//i.test(value)) return true;
-  if (!value || /\s/.test(value)) return false;
-  const [authority = ""] = value.split(/[/?#]/, 1);
-  return /[^.。．｡][.。．｡][^.。．｡]/u.test(authority);
-}
-
-/**
- * Drop duplicate candidates that share a hostname.
- * @param candidates resolved candidates, possibly containing duplicate hosts
- * @returns candidates with later duplicate hosts and invalid URLs removed
- */
-function dedupeByHost(candidates: ResolvedCandidate[]): ResolvedCandidate[] {
-  const seen = new Set<string>();
-  const deduped: ResolvedCandidate[] = [];
-  for (const candidate of candidates) {
-    try {
-      const host = new URL(candidate.url).hostname;
-      if (seen.has(host)) continue;
-      seen.add(host);
-      deduped.push(candidate);
-    } catch {
-      // Skip unparseable URLs.
-    }
-  }
-  return deduped;
-}
-
-/**
  * Fetch one candidate's homepage and run a single lightweight LLM scoring
  * call - not the full subagent pipeline, so this stays cheap across a batch.
  * @param config LLM credentials
- * @param sellingContext product context, or null for a neutral judgment
- * @param url the candidate's homepage URL
- * @param requesterMessage the requester's own chat message, included only so
- *   the language instruction has real text to detect language from - the
- *   briefing itself is scraped from the candidate's own homepage
- * @param responseLanguage language recognized from the latest user message
+ * @param candidate the resolved homepage URL and the name discovery gave it
+ * @param request the validated match request
  * @param labelsToTranslate when given, this same call also asks the model to
  *   translate these report/card labels into the same language as its
  *   description/fitReason - used once per match run instead of a dedicated
  *   translation call
- * @param nameHint official candidate name retained from discovery
- * @param matchDirection whether the candidate should buy or sell the product
- * @param matchLocation explicit geographic requirement, when supplied
  * @param signal cancels homepage and provider requests
  * @returns the candidate's score (with translated labels when requested),
  *   or null on any fetch/parse failure
  */
 export async function quickScoreCandidate(
   config: LlmConfig,
-  sellingContext: string | null,
-  url: string,
-  requesterMessage: string = "",
-  responseLanguage: string = "English",
+  candidate: ResolvedCandidate,
+  request: MatchRequest,
   labelsToTranslate?: MatchReportLabels,
-  nameHint: string | null = null,
-  matchDirection: MatchDirection = "sell",
-  matchLocation: string | null = null,
   signal?: AbortSignal,
 ): Promise<(CandidateScore & { labels?: MatchReportLabels }) | null> {
+  const { sellingContext, matchDirection, matchLocation } = request;
   try {
-    const page = await fetchWithVariants(url, signal);
-    const extraction = analyzeProspect(page.html, page.url);
-    const briefing = `CANDIDATE NAME HINT: ${nameHint ?? NOT_PUBLICLY_AVAILABLE}
+    const page = await fetchWithVariants(candidate.url, signal);
+    const $ = loadPage(page.html);
+    const extraction = analyzeProspect(page.html, page.url, $);
+    const briefing = `CANDIDATE NAME HINT: ${candidate.nameHint ?? NOT_PUBLICLY_AVAILABLE}
 Company metadata: ${extraction.companyName ?? NOT_PUBLICLY_AVAILABLE}
 Structured location: ${extraction.jsonLdOrg?.address ?? NOT_PUBLICLY_AVAILABLE}
 Title/description: ${extraction.title ?? "-"} / ${extraction.description ?? "-"}
 Tech stack: ${extraction.techStack.join(", ") || "none detected"}
-Homepage text: ${htmlToText(page.html).slice(0, HOMEPAGE_CHAR_BUDGET)}`;
-    const languageHint = `${responseLanguageContext(responseLanguage, requesterMessage)}\n\n`;
+Homepage text: ${htmlToText(page.html, $).slice(0, HOMEPAGE_CHAR_BUDGET)}`;
+    const languageHint = `${responseLanguageContext(request.responseLanguage, request.requesterMessage)}\n\n`;
     const productLine = sellingContext
       ? matchDirection === "buy"
-        ? `WHAT WE WANT TO BUY: ${sellingContext}\n\n`
-        : `WHAT WE SELL: ${sellingContext}\n\n`
+        ? `${BUYING_CONTEXT_MARKER}: ${sellingContext}\n\n`
+        : `${SELLING_CONTEXT_MARKER}: ${sellingContext}\n\n`
       : "";
     const directionLine = `MATCH DIRECTION: ${matchDirection}\n\n`;
     const locationLine = matchLocation

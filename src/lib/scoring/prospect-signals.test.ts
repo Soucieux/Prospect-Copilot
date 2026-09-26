@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { buildProspectSignals } from "@/lib/scoring/prospect-signals";
+import {
+  buildProspectSignals,
+  type SignalSource,
+} from "@/lib/scoring/prospect-signals";
 import type { ContactCandidate } from "@/lib/extract/contact-finder";
 
-const SOURCE = {
+const SOURCE: SignalSource = {
   techStack: ["Stripe", "Segment"],
   hasPricingPage: true,
   enterpriseTierListed: false,
-  jsonLdOrg: { numberOfEmployees: "51-200" },
+  employeeCount: 51,
 };
 
 const CONTACTS: ContactCandidate[] = [
@@ -60,7 +63,7 @@ describe("buildProspectSignals", () => {
 
   it("omits an employee count when the page states none", () => {
     const signals = buildProspectSignals(
-      { ...SOURCE, jsonLdOrg: null },
+      { ...SOURCE, employeeCount: undefined },
       CONTACTS,
     );
     expect(signals.employeeCount).toBeUndefined();

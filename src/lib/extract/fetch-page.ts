@@ -21,14 +21,17 @@ import {
   FetchPageError,
   isRetryableFetchError,
 } from "@/lib/extract/fetch-errors";
-import { delayWithSignal } from "@/lib/retry";
+import {
+  backoffDelayMs,
+  createAbortContext,
+  delayWithSignal,
+} from "@/lib/retry";
 
+/** A successfully fetched document; an error status is thrown, never returned. */
 export interface FetchedPage {
   url: string;
   status: number;
   html: string;
-  /** Bounded server-requested delay used internally by variant retry. */
-  retryAfterMs?: number | null;
 }
 
 const FETCH_TIMEOUT_MS = 15_000;
@@ -38,7 +41,7 @@ const MAX_NETWORK_ATTEMPTS = 3;
 const INITIAL_RETRY_DELAY_MS = 300;
 const MAX_RETRY_DELAY_MS = 2_000;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
-// Deliberately separate from the LLM retry policy in retry.ts: page fetching
+// Deliberately separate from the LLM retry policy in llm.ts: page fetching
 // and provider calls are independent decisions that happen to agree today.
 const RETRYABLE_HTTP_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const ACCEPTED_CONTENT_TYPES = [
@@ -95,13 +98,9 @@ function assertAllowedProtocolAndHost(url: URL): void {
  * @throws Error when the URL is malformed or not http(s)
  */
 export function normalizeUrl(raw: string): URL {
+  // The capture excludes the colon, so the scheme is compared without one.
   const explicitProtocol = raw.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/)?.[1];
-  if (
-    explicitProtocol &&
-    !/^https?:$/i.test(explicitProtocol) &&
-    !raw.startsWith("https://") &&
-    !raw.startsWith("http://")
-  ) {
+  if (explicitProtocol && !/^https?$/i.test(explicitProtocol)) {
     throw new FetchPageError(
       "invalid_url",
       `Unsupported protocol: ${explicitProtocol}:`,
@@ -135,16 +134,33 @@ function resolveRedirectTarget(currentUrl: URL, location: string): URL {
 }
 
 /**
+ * Strip the brackets an IPv6 literal carries inside a URL host.
+ * @param host a hostname or IP literal, possibly bracketed
+ * @returns the host without surrounding brackets
+ */
+function unbracket(host: string): string {
+  return host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+}
+
+/**
+ * Read the `code` a Node error carries, when it carries one.
+ * @param caught unknown thrown value
+ * @returns the code as a string, or an empty string when absent
+ */
+function errorCode(caught: unknown): string {
+  return typeof caught === "object" && caught !== null && "code" in caught
+    ? String((caught as { code: unknown }).code)
+    : "";
+}
+
+/**
  * Check whether an IP address is public (not loopback/private/link-local).
  * @param ip the address to check
  * @returns true when public
  */
 export function isPublicIp(ip: string): boolean {
   try {
-    const normalized = ip.startsWith("[") && ip.endsWith("]")
-      ? ip.slice(1, -1)
-      : ip;
-    return ipaddr.process(normalized).range() === "unicast";
+    return ipaddr.process(unbracket(ip)).range() === "unicast";
   } catch {
     return false;
   }
@@ -160,6 +176,7 @@ function withAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return operation;
   signal.throwIfAborted();
   return new Promise<T>((resolve, reject) => {
+    /** Reject with the caller's abort reason. */
     const onAbort = (): void => reject(signal.reason);
     signal.addEventListener("abort", onAbort, { once: true });
     operation.then(
@@ -190,12 +207,8 @@ export async function resolvePublicAddresses(
   hostname: string,
   signal?: AbortSignal,
 ): Promise<string[]> {
-  const normalizedHostname =
-    hostname.startsWith("[") && hostname.endsWith("]")
-      ? hostname.slice(1, -1)
-      : hostname;
-  const literal = isIP(normalizedHostname);
-  if (literal !== 0) {
+  const normalizedHostname = unbracket(hostname);
+  if (isIP(normalizedHostname) !== 0) {
     if (!isPublicIp(normalizedHostname)) {
       throw new FetchPageError(
         "blocked_host",
@@ -209,11 +222,7 @@ export async function resolvePublicAddresses(
     records = await withAbort(lookup(normalizedHostname, { all: true }), signal);
   } catch (caught) {
     if (signal?.aborted) signal.throwIfAborted();
-    const code =
-      typeof caught === "object" && caught !== null && "code" in caught
-        ? String((caught as { code: unknown }).code)
-        : "";
-    const temporary = code === "EAI_AGAIN";
+    const temporary = errorCode(caught) === "EAI_AGAIN";
     throw new FetchPageError(
       temporary ? "temporary_dns" : "permanent_dns",
       `Could not resolve host: ${hostname}`,
@@ -286,10 +295,7 @@ export function parseRetryAfter(raw: string | undefined): number | null {
  */
 export function classifyTransportError(caught: unknown): FetchPageError {
   if (caught instanceof FetchPageError) return caught;
-  const code =
-    typeof caught === "object" && caught !== null && "code" in caught
-      ? String((caught as { code: unknown }).code)
-      : "";
+  const code = errorCode(caught);
   if (
     code === "ECONNRESET" ||
     code === "EPIPE" ||
@@ -332,6 +338,7 @@ export function readPinnedResponse(res: IncomingMessage): Promise<RawResponse> {
     let hasSettled = false;
     const status = res.statusCode ?? 0;
     const contentType = res.headers["content-type"]?.toLowerCase();
+    /** Reject the first failure and ignore any later one. */
     const rejectOnce = (caught: unknown): void => {
       if (hasSettled) return;
       hasSettled = true;
@@ -397,16 +404,19 @@ export function requestPinned(
     const isHttps = url.protocol === "https:";
     const port = url.port ? Number(url.port) : isHttps ? 443 : 80;
     let hasSettled = false;
+    /** Resolve on the first response and ignore any later settle. */
     const resolveOnce = (response: RawResponse): void => {
       if (hasSettled) return;
       hasSettled = true;
       resolve(response);
     };
+    /** Reject the first failure, classified, and ignore any later one. */
     const rejectOnce = (caught: unknown): void => {
       if (hasSettled) return;
       hasSettled = true;
       reject(classifyTransportError(caught));
     };
+    /** Read the pinned response and settle exactly once. */
     const onResponse = (res: IncomingMessage): void => {
       void readPinnedResponse(res).then(resolveOnce, rejectOnce);
     };
@@ -439,28 +449,17 @@ const DEFAULT_FETCH_PAGE_RUNTIME: FetchPageRuntime = {
 };
 
 /**
- * Compute bounded exponential backoff with small jitter.
- * @param attempt one-based failed attempt number
- * @param retryAfterMs optional server-requested delay
- * @returns delay in milliseconds
- */
-function retryDelayMs(attempt: number, retryAfterMs: number | null): number {
-  if (retryAfterMs !== null) return retryAfterMs;
-  const exponential = INITIAL_RETRY_DELAY_MS * 2 ** (attempt - 1);
-  const jitter = Math.floor(Math.random() * INITIAL_RETRY_DELAY_MS);
-  return Math.min(exponential + jitter, MAX_RETRY_DELAY_MS);
-}
-
-/**
  * Fetch a page after SSRF checks, following redirects. Each hop - the
  * original URL and every redirect target - is independently resolved and
- * validated before it is connected to.
+ * validated before it is connected to. An error status is a failure, not a
+ * page: an error document must never be read as company evidence.
  * @param raw target URL
  * @param signal optional caller cancellation signal
  * @param addressAttempt zero-based network attempt used to rotate addresses
  * @param runtime injectable secure-fetch boundaries used by focused tests
  * @returns status, final URL, and HTML body
- * @throws Error when blocked, unreachable, oversized, or redirect-looping
+ * @throws FetchPageError when blocked, unreachable, oversized, redirect-looping,
+ *   or answered with an error status
  */
 export async function fetchPage(
   raw: string,
@@ -469,28 +468,14 @@ export async function fetchPage(
   runtime: FetchPageRuntime = DEFAULT_FETCH_PAGE_RUNTIME,
 ): Promise<FetchedPage> {
   let url = normalizeUrl(raw);
-  const controller = new AbortController();
-  let hasTimedOut = false;
-  const timer = setTimeout(() => {
-    hasTimedOut = true;
-    controller.abort();
-  }, runtime.timeoutMs);
-  const abortFromCaller = (): void => controller.abort(signal?.reason);
-  if (signal?.aborted) abortFromCaller();
-  else signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const abort = createAbortContext(runtime.timeoutMs, signal);
   try {
     for (let redirects = 0; ; redirects++) {
-      controller.signal.throwIfAborted();
+      abort.signal.throwIfAborted();
       const addresses = await runtime.resolveAddresses(
         url.hostname,
-        controller.signal,
+        abort.signal,
       );
-      if (addresses.length === 0) {
-        throw new FetchPageError(
-          "permanent_dns",
-          `Could not resolve host: ${url.hostname}`,
-        );
-      }
       const pinnedIp = addresses[addressAttempt % addresses.length];
       if (pinnedIp === undefined) {
         throw new FetchPageError(
@@ -498,13 +483,13 @@ export async function fetchPage(
           `Could not resolve host: ${url.hostname}`,
         );
       }
-      controller.signal.throwIfAborted();
+      abort.signal.throwIfAborted();
       let response: RawResponse;
       try {
-        response = await runtime.request(url, pinnedIp, controller.signal);
+        response = await runtime.request(url, pinnedIp, abort.signal);
       } catch (caught) {
         if (signal?.aborted) signal.throwIfAborted();
-        if (hasTimedOut) {
+        if (abort.timedOut()) {
           throw new FetchPageError("timeout", `Timed out fetching ${raw}`, {
             cause: caught,
             retryable: true,
@@ -512,25 +497,35 @@ export async function fetchPage(
         }
         throw caught;
       }
-      if (!REDIRECT_STATUSES.has(response.status) || !response.location) {
-        return {
-          url: url.toString(),
-          status: response.status,
-          html: response.html,
-          retryAfterMs: response.retryAfterMs,
-        };
+      if (REDIRECT_STATUSES.has(response.status) && response.location) {
+        if (redirects >= MAX_REDIRECTS) {
+          throw new FetchPageError(
+            "redirect_limit",
+            `Too many redirects for ${raw}`,
+          );
+        }
+        url = resolveRedirectTarget(url, response.location);
+        continue;
       }
-      if (redirects >= MAX_REDIRECTS) {
+      if (response.status >= 400) {
         throw new FetchPageError(
-          "redirect_limit",
-          `Too many redirects for ${raw}`,
+          "http_status",
+          `HTTP ${response.status} for ${url}`,
+          {
+            retryable: RETRYABLE_HTTP_STATUSES.has(response.status),
+            status: response.status,
+            retryAfterMs: response.retryAfterMs,
+          },
         );
       }
-      url = resolveRedirectTarget(url, response.location);
+      return {
+        url: url.toString(),
+        status: response.status,
+        html: response.html,
+      };
     }
   } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", abortFromCaller);
+    abort.cleanup();
   }
 }
 
@@ -540,62 +535,54 @@ const DEFAULT_FETCH_WITH_VARIANTS_RUNTIME: FetchWithVariantsRuntime = {
 };
 
 /**
- * Try a sequence of URL variants (https/www permutations) until one loads.
+ * Fetch a URL within one bounded attempt budget shared by its variants (the
+ * URL as given, without `www.`, then over plain http). Only a temporary
+ * failure is retried: the first retry repeats the same variant and later ones
+ * advance to the next. A permanent failure - a blocked host, a client error,
+ * a certificate or permanent DNS failure - is thrown at once and no other
+ * variant is tried.
  * @param raw the user-supplied URL
  * @param signal optional caller cancellation signal
  * @param runtime injectable retry boundaries used by focused tests
  * @returns the first successful fetch
- * @throws the last error when every variant fails
+ * @throws the first permanent error, or the last temporary one once the
+ *   attempt budget is spent
  */
 export async function fetchWithVariants(
   raw: string,
   signal?: AbortSignal,
   runtime: FetchWithVariantsRuntime = DEFAULT_FETCH_WITH_VARIANTS_RUNTIME,
 ): Promise<FetchedPage> {
-  const base = normalizeUrl(raw);
+  const primary = normalizeUrl(raw).toString();
   const variants = [
-    base.toString(),
-    new URL(base.toString().replace("://www.", "://")).toString(),
-    new URL(base.toString().replace("https://", "http://")).toString(),
+    ...new Set([
+      primary,
+      new URL(primary.replace("://www.", "://")).toString(),
+      new URL(primary.replace("https://", "http://")).toString(),
+    ]),
   ];
-  const unique = [...new Set(variants)];
-  let lastError: unknown = null;
-  let attempt = 0;
   let variantIndex = 0;
-  while (attempt < MAX_NETWORK_ATTEMPTS && variantIndex < unique.length) {
-    const variant = unique[variantIndex];
-    if (variant === undefined) break;
-    attempt += 1;
+  for (let attempt = 1; ; attempt++) {
+    // The index never leaves the array; the fallback only narrows the type.
+    const variant = variants[variantIndex] ?? primary;
     signal?.throwIfAborted();
+    let failure: unknown;
     try {
-      const page = await runtime.fetchAttempt(variant, signal, attempt - 1);
-      if (page.status < 400) return page;
-      const retryable = RETRYABLE_HTTP_STATUSES.has(page.status);
-      lastError = new FetchPageError(
-        "http_status",
-        `HTTP ${page.status} for ${variant}`,
-        {
-          retryable,
-          status: page.status,
-          retryAfterMs: page.retryAfterMs,
-        },
-      );
+      return await runtime.fetchAttempt(variant, signal, attempt - 1);
     } catch (caught) {
       signal?.throwIfAborted();
-      lastError = caught;
+      failure = caught;
     }
-    if (isRetryableFetchError(lastError) && attempt < MAX_NETWORK_ATTEMPTS) {
-      const retryAfterMs =
-        lastError instanceof FetchPageError ? lastError.retryAfterMs : null;
-      if (attempt > 1 && variantIndex + 1 < unique.length) {
-        variantIndex += 1;
-      }
-      await runtime.delay(retryDelayMs(attempt, retryAfterMs), signal);
-      continue;
+    if (!isRetryableFetchError(failure) || attempt >= MAX_NETWORK_ATTEMPTS) {
+      throw failure;
     }
-    throw lastError;
+    if (attempt > 1 && variantIndex + 1 < variants.length) variantIndex += 1;
+    const retryAfterMs =
+      failure instanceof FetchPageError ? failure.retryAfterMs : null;
+    await runtime.delay(
+      retryAfterMs ??
+        backoffDelayMs(attempt, INITIAL_RETRY_DELAY_MS, MAX_RETRY_DELAY_MS),
+      signal,
+    );
   }
-  throw lastError instanceof Error
-    ? lastError
-    : new Error(`Could not reach ${raw}`);
 }

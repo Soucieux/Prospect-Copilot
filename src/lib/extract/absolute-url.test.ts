@@ -22,4 +22,19 @@ describe("absoluteUrl", () => {
       "https://acme.example.com/team",
     );
   });
+
+  it("keeps a scheme written in capitals instead of prefixing a second one", () => {
+    expect(absoluteUrl("HTTPS://www.linkedin.com/in/jane")).toBe(
+      "HTTPS://www.linkedin.com/in/jane",
+    );
+    expect(absoluteUrl("Http://acme.example.com")).toBe(
+      "Http://acme.example.com",
+    );
+  });
+
+  it("treats a host that merely starts with http as bare", () => {
+    expect(absoluteUrl("httpbin.example.com/status")).toBe(
+      "https://httpbin.example.com/status",
+    );
+  });
 });

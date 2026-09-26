@@ -38,9 +38,23 @@ describe("normalizeUrl", () => {
     expect(normalizeUrl("http://acme.com").protocol).toBe("http:");
   });
 
+  it("accepts a scheme written in capitals", () => {
+    expect(normalizeUrl("HTTPS://Acme.com").toString()).toBe(
+      "https://acme.com/",
+    );
+    expect(normalizeUrl("Http://acme.com").protocol).toBe("http:");
+  });
+
   it("rejects non-http protocols", () => {
     expect(() => normalizeUrl("file:///etc/passwd")).toThrow();
   });
+
+  it.each(["javascript:alert(1)", "ftp://acme.com", "mailto:jane@acme.com"])(
+    "rejects %s as an unsupported protocol",
+    (raw) => {
+      expect(() => normalizeUrl(raw)).toThrow(/Unsupported protocol/);
+    },
+  );
 
   it("rejects blocked hostnames", () => {
     expect(() => normalizeUrl("http://localhost:3000")).toThrow(/Blocked/);
@@ -178,6 +192,49 @@ describe("fetchPage", () => {
     ).rejects.toMatchObject({ code: "blocked_host" });
   });
 
+  it("throws an error page as a status failure instead of returning its body", async () => {
+    const runtime: FetchPageRuntime = {
+      resolveAddresses: async () => ["93.184.216.34"],
+      request: async () => ({
+        status: 404,
+        location: null,
+        html: "<h1>Page not found</h1>",
+        retryAfterMs: null,
+      }),
+      timeoutMs: 1_000,
+    };
+
+    await expect(
+      fetchPage("https://example.com/missing", undefined, 0, runtime),
+    ).rejects.toMatchObject({
+      code: "http_status",
+      status: 404,
+      retryable: false,
+    });
+  });
+
+  it("marks a temporary server status retryable and carries its Retry-After", async () => {
+    const runtime: FetchPageRuntime = {
+      resolveAddresses: async () => ["93.184.216.34"],
+      request: async () => ({
+        status: 503,
+        location: null,
+        html: "busy",
+        retryAfterMs: 2_000,
+      }),
+      timeoutMs: 1_000,
+    };
+
+    await expect(
+      fetchPage("https://example.com", undefined, 0, runtime),
+    ).rejects.toMatchObject({
+      code: "http_status",
+      status: 503,
+      retryable: true,
+      retryAfterMs: 2_000,
+    });
+  });
+
   it("classifies the internal request deadline as a retryable timeout", async () => {
     const runtime: FetchPageRuntime = {
       resolveAddresses: async () => ["93.184.216.34"],
@@ -211,11 +268,12 @@ describe("fetchWithVariants", () => {
   it("retries a temporary server response and then succeeds", async () => {
     const fetchAttempt = vi
       .fn<FetchWithVariantsRuntime["fetchAttempt"]>()
-      .mockResolvedValueOnce({
-        url: "https://example.com/",
-        status: 503,
-        html: "temporary",
-      })
+      .mockRejectedValueOnce(
+        new FetchPageError("http_status", "HTTP 503", {
+          retryable: true,
+          status: 503,
+        }),
+      )
       .mockResolvedValueOnce({
         url: "https://example.com/",
         status: 200,
@@ -234,7 +292,9 @@ describe("fetchWithVariants", () => {
 
   it("does not retry a permanent client response", async () => {
     const fetchAttempt = vi.fn<FetchWithVariantsRuntime["fetchAttempt"]>(
-      async (raw) => ({ url: raw, status: 403, html: "blocked" }),
+      async () => {
+        throw new FetchPageError("http_status", "HTTP 403", { status: 403 });
+      },
     );
 
     await expect(
@@ -274,12 +334,13 @@ describe("fetchWithVariants", () => {
     const delay = vi.fn(async () => undefined);
     const fetchAttempt = vi
       .fn<FetchWithVariantsRuntime["fetchAttempt"]>()
-      .mockResolvedValueOnce({
-        url: "https://example.com/",
-        status: 429,
-        html: "limited",
-        retryAfterMs: 1_500,
-      })
+      .mockRejectedValueOnce(
+        new FetchPageError("http_status", "HTTP 429", {
+          retryable: true,
+          status: 429,
+          retryAfterMs: 1_500,
+        }),
+      )
       .mockResolvedValueOnce({
         url: "https://example.com/",
         status: 200,

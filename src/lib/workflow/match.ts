@@ -1,22 +1,21 @@
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
+import { CHAT_PHASE } from "@/lib/agent/schemas";
 import {
   resolveMatchCandidatesStage,
   scoreMatchCandidatesStage,
   type CandidatePool,
   type CandidateScoreBatch,
+  type MatchRequest,
 } from "@/lib/skills/match";
 import { formatMatchSkillResult } from "@/lib/skills/match-report";
+import { buildScoreLabels } from "@/lib/localization";
 import type { WorkflowRuntimeContext } from "@/lib/workflow/context";
-import {
-  WORKFLOW_NODE,
-  WORKFLOW_PHASE,
-  WORKFLOW_STATUS,
-} from "@/lib/workflow/constants";
-import { buildScoreLabels } from "@/lib/workflow/events";
+import { WORKFLOW_NODE, WORKFLOW_STATUS } from "@/lib/workflow/constants";
 import { buildReport } from "@/lib/workflow/report";
 import {
   WorkflowStateAnnotation,
   requireStageValue,
+  type WorkflowState,
 } from "@/lib/workflow/state";
 
 /** Stage-level state retained only while the match subgraph is active. */
@@ -34,6 +33,26 @@ const MatchStateAnnotation = Annotation.Root({
 
 type MatchState = typeof MatchStateAnnotation.State;
 type MatchStateUpdate = typeof MatchStateAnnotation.Update;
+
+/**
+ * Read the validated match request out of graph state once, so every stage
+ * consumes the same values instead of each re-deriving defaults from routing.
+ * @param state current request state
+ * @returns the request every match stage consumes
+ * @internal exported for deterministic stage tests
+ */
+export function matchRequestFrom(state: WorkflowState): MatchRequest {
+  const routing = state.routing;
+  return {
+    sellingContext: routing?.sellingContext ?? null,
+    candidates: routing?.candidates ?? null,
+    requesterMessage: state.message,
+    responseLanguage: state.language,
+    runtimeLabels: state.runtimeLabels,
+    matchDirection: routing?.matchDirection ?? "sell",
+    matchLocation: routing?.matchLocation ?? null,
+  };
+}
 
 /**
  * Select clarification or candidate discovery from validated routing state.
@@ -77,26 +96,20 @@ async function resolveMatchNode(
   state: MatchState,
   context: WorkflowRuntimeContext,
 ): Promise<MatchStateUpdate> {
-  const routing = state.routing;
+  const request = matchRequestFrom(state);
   context.signal.throwIfAborted();
   context.emit({
     type: "phase",
-    phase: WORKFLOW_PHASE.routing,
+    phase: CHAT_PHASE.routing,
     detail:
-      routing?.matchDirection === "buy"
+      request.matchDirection === "buy"
         ? state.runtimeLabels.matchedBuyMatch
         : state.runtimeLabels.matchedMatch,
   });
   const candidatePool = await resolveMatchCandidatesStage(
     context.config,
-    routing?.sellingContext ?? null,
-    routing?.candidates ?? null,
+    request,
     context.emit,
-    state.message,
-    state.language,
-    state.runtimeLabels,
-    routing?.matchDirection ?? "sell",
-    routing?.matchLocation ?? null,
     context.signal,
   );
   return { candidatePool };
@@ -124,25 +137,20 @@ async function scoreMatchNode(
   state: MatchState,
   context: WorkflowRuntimeContext,
 ): Promise<MatchStateUpdate> {
-  const routing = state.routing;
   const scoreBatch = await scoreMatchCandidatesStage(
     context.config,
+    matchRequestFrom(state),
     requireStageValue(state.candidatePool, "candidate pool"),
-    routing?.sellingContext ?? null,
-    routing?.candidates ?? null,
     context.emit,
-    state.message,
-    state.language,
-    state.runtimeLabels,
-    routing?.matchDirection ?? "sell",
-    routing?.matchLocation ?? null,
     context.signal,
   );
   return { scoreBatch };
 }
 
 /**
- * Build and emit the final match report from completed stage state.
+ * Build and emit the final match report from completed stage state. The
+ * completion phase is emitted here, beside the report event, so the pure
+ * formatter never needs the event channel.
  * @param state current match subgraph state
  * @param context non-persisted request runtime
  * @returns report and completed-status update
@@ -152,21 +160,22 @@ export function formatMatchNode(
   state: MatchState,
   context: WorkflowRuntimeContext,
 ): MatchStateUpdate {
-  const routing = state.routing;
   const candidatePool = requireStageValue(state.candidatePool, "candidate pool");
   const scoreBatch = state.scoreBatch ?? {
     scored: [],
     labels: candidatePool.labels,
   };
+  // An empty pool already reported "no candidates" as its completion.
+  if (candidatePool.candidates.length > 0) {
+    context.emit({
+      type: "phase",
+      phase: CHAT_PHASE.done,
+      detail: state.runtimeLabels.matchComplete,
+    });
+  }
   const { markdown, title, matches, cardLabels } = formatMatchSkillResult(
-    candidatePool,
+    matchRequestFrom(state),
     scoreBatch,
-    routing?.sellingContext ?? null,
-    routing?.candidates ?? null,
-    context.emit,
-    state.runtimeLabels,
-    routing?.matchDirection ?? "sell",
-    routing?.matchLocation ?? null,
   );
   const report = buildReport({
     kind: "match",

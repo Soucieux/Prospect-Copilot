@@ -1,3 +1,4 @@
+import * as cheerio from "cheerio";
 import { describe, expect, it } from "vitest";
 import {
   classifyBuyingRole,
@@ -166,6 +167,22 @@ describe("findContacts filtering people from other companies", () => {
     const contacts = findContacts(`<div><h3>Jori Lallo</h3><p>Co-founder, CPO</p></div>`);
     expect(contacts).toHaveLength(1);
     expect(contacts[0]?.seniority).toBe("C-Suite");
+  });
+});
+
+describe("findContacts on a shared document", () => {
+  it("still reads structured people after it has stripped the page's scripts", () => {
+    const $ = cheerio.load(TEAM_HTML);
+    const first = findContacts(TEAM_HTML, null, $);
+    // The same document, parsed once: the JSON-LD scripts are gone now, so a
+    // second pass can only find the people written in the markup itself.
+    const second = findContacts(TEAM_HTML, null, $);
+    expect(first.map((person) => person.name)).toEqual([
+      "Jane Doe",
+      "Ravi Patel",
+      "Maria Garcia",
+    ]);
+    expect(second.map((person) => person.name)).toEqual(["Maria Garcia"]);
   });
 });
 

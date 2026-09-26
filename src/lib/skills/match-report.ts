@@ -5,20 +5,15 @@
  * match.ts because those stages consume them too.
  */
 
-import type { EmitCallback, MatchDirection } from "@/lib/agent/schemas";
-import { WORKFLOW_PHASE } from "@/lib/workflow/constants";
 import {
   MATCH_REPORT_LABELS,
-  type CandidatePool,
   type MatchReportLabels,
   type CandidateScore,
   type CandidateScoreBatch,
+  type MatchRequest,
   type MatchSkillResult,
 } from "@/lib/skills/match";
-import {
-  formatRuntimeLabel,
-  type RuntimeLabels,
-} from "@/lib/localization";
+import { formatRuntimeLabel, matchCardLabels } from "@/lib/localization";
 
 /** Most candidates one match report will show. */
 const MATCH_RESULT_LIMIT = 8;
@@ -52,7 +47,7 @@ export function renderMatchReport(
   totalConsidered: number,
   labels: MatchReportLabels = MATCH_REPORT_LABELS,
   matchLocation: string | null = null,
-): { markdown: string; title: string; matches: CandidateScore[] } {
+): { markdown: string; title: string } {
   const title = matchLocation
     ? sellingContext
       ? formatRuntimeLabel(labels.titleWithLocationTemplate, {
@@ -63,15 +58,11 @@ export function renderMatchReport(
           location: matchLocation,
         })
     : sellingContext
-      ? labels.titleTemplate.replace("{product}", sellingContext)
+      ? formatRuntimeLabel(labels.titleTemplate, { product: sellingContext })
       : labels.titleFallback;
 
   if (ranked.length === 0) {
-    return {
-      title,
-      markdown: `# ${title}\n\n${labels.noneScored}`,
-      matches: [],
-    };
+    return { title, markdown: `# ${title}\n\n${labels.noneScored}` };
   }
 
   const rankedTemplate =
@@ -81,9 +72,10 @@ export function renderMatchReport(
   const lines = [
     `# ${title}`,
     "",
-    rankedTemplate
-      .replace("{ranked}", String(ranked.length))
-      .replace("{total}", String(totalConsidered)),
+    formatRuntimeLabel(rankedTemplate, {
+      ranked: ranked.length,
+      total: totalConsidered,
+    }),
     "",
   ];
   ranked.forEach((candidate, index) => {
@@ -108,37 +100,29 @@ export function renderMatchReport(
       omittedCount === 1
         ? labels.omittedTemplateSingular
         : labels.omittedTemplatePlural;
-    lines.push(`_${omittedTemplate.replace("{count}", String(omittedCount))}_`, "");
+    lines.push(
+      `_${formatRuntimeLabel(omittedTemplate, { count: omittedCount })}_`,
+      "",
+    );
   }
   lines.push(`> ${labels.auditPrompt}`);
-  return { title, markdown: lines.join("\n"), matches: ranked };
+  return { title, markdown: lines.join("\n") };
 }
 
 /**
  * Rank and format completed match state without repeating earlier stages.
- * @param candidatePool resolved candidate stage output
+ * @param request the validated match request
  * @param scoreBatch scoring stage output
- * @param sellingContext product context for report titles
- * @param namedCandidates user-named candidates, when supplied
- * @param emit progress callback
- * @param runtimeLabels localized progress and card labels
- * @param matchDirection whether candidates buy or sell the product
- * @param matchLocation explicit geographic constraint
  * @returns final match report and card metadata
  */
 export function formatMatchSkillResult(
-  candidatePool: CandidatePool,
+  request: MatchRequest,
   scoreBatch: CandidateScoreBatch,
-  sellingContext: string | null,
-  namedCandidates: string[] | null,
-  emit: EmitCallback,
-  runtimeLabels: RuntimeLabels,
-  matchDirection: MatchDirection,
-  matchLocation: string | null,
 ): MatchSkillResult {
+  const { sellingContext, candidates, runtimeLabels, matchDirection } = request;
   let labels = scoreBatch.labels;
   const ranked = rankCandidates(scoreBatch.scored, MATCH_RESULT_LIMIT);
-  if (ranked.length === 0 && namedCandidates?.length) {
+  if (ranked.length === 0 && candidates?.length) {
     const reportTitle = formatRuntimeLabel(runtimeLabels.reportTemplate, {
       skill: runtimeLabels.skillMatch,
     });
@@ -152,13 +136,6 @@ export function formatMatchSkillResult(
           : runtimeLabels.noCandidates,
     };
   }
-  if (candidatePool.candidates.length > 0) {
-    emit({
-      type: "phase",
-      phase: WORKFLOW_PHASE.done,
-      detail: runtimeLabels.matchComplete,
-    });
-  }
   const cardLabels =
     matchDirection === "buy"
       ? {
@@ -167,20 +144,16 @@ export function formatMatchSkillResult(
           auditHint: labels.auditHint,
           auditRequestTemplate: labels.auditRequestTemplate,
         }
-      : {
-          founded: runtimeLabels.foundedLabel,
-          fit: runtimeLabels.fitLabel,
-          auditHint: runtimeLabels.auditHint,
-          auditRequestTemplate: runtimeLabels.auditRequestTemplate,
-        };
+      : matchCardLabels(runtimeLabels);
   return {
     ...renderMatchReport(
       sellingContext,
       ranked,
       scoreBatch.scored.length,
       labels,
-      matchLocation,
+      request.matchLocation,
     ),
+    matches: ranked,
     cardLabels,
   };
 }

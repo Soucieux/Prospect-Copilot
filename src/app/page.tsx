@@ -18,9 +18,16 @@ import {
 import type {
   ChatMessage,
   MatchCandidate,
+  MatchCardLabels,
   ProgressEvent,
   ReportState,
 } from "@/lib/chat-types";
+import {
+  RUNTIME_LABEL_DEFAULTS,
+  buildScoreLabels,
+  formatRuntimeLabel,
+  matchCardLabels,
+} from "@/lib/localization";
 import {
   replaceMessageSnapshot,
   updateLastMessageSnapshot,
@@ -556,21 +563,15 @@ interface ReportSectionProps {
   report: ReportState;
 }
 
-/** English recovery labels for reports saved before per-message localization. */
-const DEFAULT_SCORE_LABELS = {
-  grade: "Grade",
-  confidence: "confidence",
-  confidenceValue: "",
-  report: "Report",
-};
-
 /**
  * Score summary card with Unicode block bars, ported from the CLI design.
  * @param report the structured report payload
  * @returns the summary card
  */
 function Scorecard({ report }: ReportSectionProps): JSX.Element {
-  const labels = report.scoreLabels ?? DEFAULT_SCORE_LABELS;
+  // English recovery labels for reports saved before per-message localization.
+  const labels =
+    report.scoreLabels ?? buildScoreLabels(RUNTIME_LABEL_DEFAULTS, report.kind);
   return (
     <div className="scorecard">
       <div className="scorecard-head">
@@ -608,12 +609,7 @@ function bar(score: number): string {
 }
 
 /** English fallback card labels, used only if a stored report predates matchLabels. */
-const DEFAULT_MATCH_CARD_LABELS = {
-  founded: "Founded",
-  fit: "Fit",
-  auditHint: "Click for a full prospect audit →",
-  auditRequestTemplate: "Analyze {url} as a prospect",
-};
+const DEFAULT_MATCH_CARD_LABELS = matchCardLabels(RUNTIME_LABEL_DEFAULTS);
 
 /**
  * Ranked candidate cards for the match skill: full company name, score,
@@ -632,12 +628,7 @@ function MatchCandidateCards({
   onSelect,
 }: {
   candidates: MatchCandidate[];
-  labels: {
-    founded: string;
-    fit: string;
-    auditHint: string;
-    auditRequestTemplate: string;
-  };
+  labels: MatchCardLabels;
   disabled: boolean;
   onSelect: (candidate: MatchCandidate, requestText: string) => void;
 }): JSX.Element {
@@ -683,7 +674,9 @@ function MatchCandidateCards({
             onClick={() =>
               onSelect(
                 candidate,
-                labels.auditRequestTemplate.replace("{url}", candidate.url),
+                formatRuntimeLabel(labels.auditRequestTemplate, {
+                  url: candidate.url,
+                }),
               )
             }
           >

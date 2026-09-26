@@ -37,6 +37,11 @@ describe("renderMatchReport titles", () => {
     expect(title).toBe("Prospect matches for: payroll software in Leeds");
   });
 
+  it("keeps a product verbatim when it looks like a replacement pattern", () => {
+    const { title } = renderMatchReport("$& wool blankets", [candidate()], 1);
+    expect(title).toBe("Prospect matches for: $& wool blankets");
+  });
+
   it("names the location alone when only a place was given", () => {
     const { title } = renderMatchReport(
       null,

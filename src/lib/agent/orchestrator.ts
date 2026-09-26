@@ -4,13 +4,8 @@
  * subagent LLM calls, Phase 3 deterministic scoring + LLM synthesis.
  */
 
-import { WORKFLOW_PHASE } from "@/lib/workflow/constants";
 import {
-  structuredChatCompletion,
-  type LlmConfig,
-  type LlmMessage,
-} from "@/lib/llm";
-import {
+  CHAT_PHASE,
   SUBAGENT_RESULT_SCHEMA,
   SYNTHESIS_SCHEMA,
   type EmitCallback,
@@ -18,19 +13,32 @@ import {
   type SynthesisResult,
 } from "@/lib/agent/schemas";
 import {
+  STRUCTURED_LLM_RETRY_OPTIONS,
+  structuredChatCompletion,
+  type LlmConfig,
+  type LlmMessage,
+} from "@/lib/llm";
+import {
   SUBAGENTS,
   subagentUserMessage,
   subagentOutcomes,
 } from "@/lib/skills/subagents";
 import {
+  NEUTRAL_CATEGORY_SCORE,
   computeProspectScore,
   scoreBant,
   scoreMeddic,
+  type BantResult,
   type CategoryScores,
   type MeddicResult,
   type ProspectComposite,
 } from "@/lib/scoring/lead-scorer";
-import { analyzeProspect } from "@/lib/extract/analyze-prospect";
+import {
+  SUBPAGE_PATTERNS,
+  analyzeProspect,
+  loadPage,
+  type ProspectExtraction,
+} from "@/lib/extract/analyze-prospect";
 import {
   findContacts,
   normalizeName,
@@ -40,22 +48,18 @@ import { fetchPage, fetchWithVariants } from "@/lib/extract/fetch-page";
 import { htmlToText } from "@/lib/extract/html-to-text";
 import {
   RESPOND_IN_USER_LANGUAGE,
+  SELLING_CONTEXT_MARKER,
   UNTRUSTED_WEB_CONTENT_RULES,
 } from "@/lib/constants";
 import {
-  RUNTIME_LABEL_DEFAULTS,
   formatRuntimeLabel,
   localizedAgentName,
   localizedCategoryName,
   localizedConfidence,
-  mergeLabelSet,
   responseLanguageContext,
   type RuntimeLabels,
 } from "@/lib/localization";
-import {
-  STRUCTURED_LLM_RETRY_OPTIONS,
-  retryOperation,
-} from "@/lib/retry";
+import { retryOperation } from "@/lib/retry";
 import { runGraphWorkerPool } from "@/lib/graph-worker-pool";
 import { emitAgentProgress } from "@/lib/agent/progress";
 import {
@@ -63,21 +67,12 @@ import {
   assembleLocalizedFallbackReport,
   assembleReport,
 } from "@/lib/agent/prospect-report";
-import { buildProspectSignals } from "@/lib/scoring/prospect-signals";
+import {
+  buildProspectSignals,
+  type DiscoverySignals,
+} from "@/lib/scoring/prospect-signals";
+import type { ReportState } from "@/lib/chat-types";
 
-// The terminator accepts ? and # as well as / and end-of-string: marketing
-// sites routinely hang tracking parameters off their own nav links, and
-// requiring a bare path silently dropped those pages from discovery.
-export const SUBPAGE_PATTERNS: { name: string; pattern: RegExp }[] = [
-  { name: "about", pattern: /\/(about|company|about-us)(\/|\?|#|$)/i },
-  { name: "team", pattern: /\/(team|leadership|people)(\/|\?|#|$)/i },
-  { name: "pricing", pattern: /\/(pricing|plans|packages)(\/|\?|#|$)/i },
-  { name: "careers", pattern: /\/(careers|jobs|join-us|hiring)(\/|\?|#|$)/i },
-  { name: "contact", pattern: /\/(contact|get-in-touch|demo)(\/|\?|#|$)/i },
-  { name: "blog", pattern: /\/(blog|resources|insights|news)(\/|\?|#|$)/i },
-];
-
-const MAX_SUBPAGES = 6;
 const PAGE_TEXT_BUDGET = 3_000;
 const SYNTHESIS_PAGE_LIMIT = 4;
 const SYNTHESIS_BRIEFING_CHAR_BUDGET = 8_000;
@@ -85,28 +80,36 @@ const SYNTHESIS_BRIEFING_CHAR_BUDGET = 8_000;
 // here as well; without this one contact-heavy page inflates five prompts.
 const SUBAGENT_BRIEFING_CHAR_BUDGET = 12_000;
 
+/** Subpages whose markup lists people; the others contribute text only. */
+const CONTACT_PAGE_NAMES = new Set(["team", "about"]);
+
 interface BriefingPage {
   name: string;
   url: string;
   text: string;
 }
 
-export interface DiscoveryBriefing {
+/** A fetched subpage, with contacts read only from the pages that list people. */
+interface FetchedSubpage extends BriefingPage {
+  contacts: ContactCandidate[] | null;
+}
+
+/** The homepage extraction fields the briefing carries forward, plus its pages. */
+export interface DiscoveryBriefing
+  extends Pick<
+    ProspectExtraction,
+    | "companyName"
+    | "title"
+    | "description"
+    | "techStack"
+    | "socialProfiles"
+    | "emails"
+    | "hasPricingPage"
+    | "enterpriseTierListed"
+    | "jsonLdOrg"
+    | "employeeCount"
+  > {
   url: string;
-  companyName: string | null;
-  title: string | null;
-  description: string | null;
-  techStack: string[];
-  socialProfiles: string[];
-  emails: string[];
-  hasPricingPage: boolean;
-  enterpriseTierListed: boolean;
-  jsonLdOrg: {
-    name?: string;
-    foundingDate?: string;
-    numberOfEmployees?: number | string;
-    address?: string;
-  } | null;
   pages: BriefingPage[];
   contacts: ContactCandidate[];
 }
@@ -117,7 +120,7 @@ export type ProspectAnalysisResults = PromiseSettledResult<SubagentResult>[];
 /** Deterministic scores calculated after prospect analysis completes. */
 export interface ProspectScoreState {
   composite: ProspectComposite;
-  bant: ReturnType<typeof scoreBant>;
+  bant: BantResult;
   meddic: MeddicResult;
 }
 
@@ -127,7 +130,8 @@ export interface ProspectPipelineOutcome {
   composite: ProspectComposite;
   companyName: string;
   url: string;
-  categoryLabels: string[];
+  /** The weighted rows with their category names localized for display. */
+  categories: NonNullable<ReportState["categories"]>;
   confidenceLabel: string;
 }
 
@@ -142,31 +146,36 @@ export interface ProspectPipelineOutcome {
 export async function discoverProspect(
   rawUrl: string,
   emit: EmitCallback,
-  runtimeLabels: RuntimeLabels = RUNTIME_LABEL_DEFAULTS,
+  runtimeLabels: RuntimeLabels,
   signal?: AbortSignal,
 ): Promise<DiscoveryBriefing> {
   emit({
     type: "phase",
-    phase: WORKFLOW_PHASE.discovery,
+    phase: CHAT_PHASE.discovery,
     detail: formatRuntimeLabel(runtimeLabels.fetchingTemplate, { target: rawUrl }),
   });
   const homepage = await fetchWithVariants(rawUrl, signal);
-  const extraction = analyzeProspect(homepage.html, homepage.url);
+  const $ = loadPage(homepage.html);
+  const extraction = analyzeProspect(homepage.html, homepage.url, $);
 
   emit({
     type: "phase",
-    phase: WORKFLOW_PHASE.discovery,
+    phase: CHAT_PHASE.discovery,
     detail: runtimeLabels.fetchingSubpages,
   });
-  const subpages = await fetchSubpages(extraction.internalLinks, signal);
-  const contacts = extractContacts(
-    subpages,
-    homepage.html,
+  const subpages = await fetchSubpages(
+    extraction.internalLinks,
     extraction.companyName,
+    signal,
+  );
+  const contacts = mergeContacts(
+    subpages.some((page) => page.contacts !== null)
+      ? subpages.flatMap((page) => page.contacts ?? [])
+      : findContacts(homepage.html, extraction.companyName, $),
   );
   emit({
     type: "phase",
-    phase: WORKFLOW_PHASE.discovery,
+    phase: CHAT_PHASE.discovery,
     detail: formatRuntimeLabel(runtimeLabels.discoveryCompleteTemplate, {
       pages: subpages.length + 1,
       contacts: contacts.length,
@@ -183,30 +192,28 @@ export async function discoverProspect(
     hasPricingPage: extraction.hasPricingPage,
     enterpriseTierListed: extraction.enterpriseTierListed,
     jsonLdOrg: extraction.jsonLdOrg,
+    employeeCount: extraction.employeeCount,
     pages: [
       {
         name: "homepage",
         url: homepage.url,
-        text: htmlToText(homepage.html).slice(0, PAGE_TEXT_BUDGET),
+        text: htmlToText(homepage.html, $).slice(0, PAGE_TEXT_BUDGET),
       },
-      ...subpages.map((page) => ({
-        name: page.name,
-        url: page.url,
-        text: page.text,
-      })),
+      ...subpages.map(({ name, url, text }) => ({ name, url, text })),
     ],
     contacts,
   };
 }
 
 /**
- * Run the five fixed analysis workers for one discovered prospect.
+ * Run the five fixed analysis workers in parallel for one discovered
+ * prospect, emitting per-agent progress.
  * @param config LLM credentials
  * @param briefing bounded public company evidence
  * @param emit progress callback
  * @param sellingContext optional seller product or ICP
- * @param requesterMessage latest user message
- * @param responseLanguage detected response language
+ * @param requesterMessage the requester's own chat message, for language detection only
+ * @param responseLanguage language recognized from the latest user message
  * @param runtimeLabels localized progress labels
  * @param signal cancels analysis workers
  * @returns settled worker outcomes in fixed category order
@@ -223,33 +230,79 @@ export async function analyzeProspectBriefing(
 ): Promise<ProspectAnalysisResults> {
   emit({
     type: "phase",
-    phase: WORKFLOW_PHASE.analysis,
+    phase: CHAT_PHASE.analysis,
     detail: runtimeLabels.launchingAgents,
   });
-  return runSubagents(
-    config,
-    briefing,
-    emit,
+  const briefingJson = JSON.stringify(briefing).slice(
+    0,
+    SUBAGENT_BRIEFING_CHAR_BUDGET,
+  );
+  const promptContent = subagentUserMessage(
+    briefingJson,
     sellingContext,
     requesterMessage,
     responseLanguage,
-    runtimeLabels,
+  );
+  const results = await runGraphWorkerPool(
+    SUBAGENTS,
+    SUBAGENTS.length,
+    async (definition): Promise<PromiseSettledResult<SubagentResult>> => {
+      const displayName = localizedAgentName(runtimeLabels, definition.category);
+      emitAgentProgress(emit, runtimeLabels, displayName, "running");
+      try {
+        const result = await retryOperation(
+          () =>
+            structuredChatCompletion(
+              config,
+              [
+                { role: "system", content: definition.systemPrompt },
+                { role: "user", content: promptContent },
+              ],
+              SUBAGENT_RESULT_SCHEMA,
+              {
+                temperature: 0.2,
+                schemaName: "prospect_subagent_result",
+                signal,
+              },
+            ),
+          { ...STRUCTURED_LLM_RETRY_OPTIONS, signal },
+        );
+        emitAgentProgress(
+          emit,
+          runtimeLabels,
+          displayName,
+          "done",
+          result.score,
+        );
+        return { status: "fulfilled", value: result };
+      } catch {
+        signal?.throwIfAborted();
+        emitAgentProgress(emit, runtimeLabels, displayName, "failed");
+        return { status: "rejected", reason: "analysis_unavailable" };
+      }
+    },
     signal,
   );
+  signal?.throwIfAborted();
+  return results;
 }
 
 /**
  * Calculate deterministic composite and BANT scores from completed analysis.
+ * Competitive position is only meaningful against a known product, so
+ * without one it scores neutral here rather than trusting the worker to.
  * @param briefing bounded discovery evidence
  * @param results settled analysis results
+ * @param sellingContext the seller's product or ICP, when the user gave one
  * @returns deterministic score state
  */
 export function scoreProspectBriefing(
   briefing: DiscoveryBriefing,
   results: ProspectAnalysisResults,
+  sellingContext: string | null = null,
 ): ProspectScoreState {
   const scores: CategoryScores = {};
-  let discoverySignals: SubagentResult["discoverySignals"];
+  let discoverySignals: DiscoverySignals | undefined;
   for (const { definition, settled } of subagentOutcomes(results)) {
     if (settled.status === "fulfilled") {
       scores[definition.category] = settled.value.score;
@@ -260,6 +313,9 @@ export function scoreProspectBriefing(
         };
       }
     }
+  }
+  if (!sellingContext && scores.competitivePosition !== undefined) {
+    scores.competitivePosition = NEUTRAL_CATEGORY_SCORE;
   }
   const signals = buildProspectSignals(
     briefing,
@@ -301,7 +357,7 @@ export async function synthesizeProspectBriefing(
 ): Promise<SynthesisResult | null> {
   emit({
     type: "phase",
-    phase: WORKFLOW_PHASE.synthesis,
+    phase: CHAT_PHASE.synthesis,
     detail: formatRuntimeLabel(runtimeLabels.synthesizingTemplate, {
       score: scoreState.composite.score,
       grade: scoreState.composite.grade,
@@ -327,7 +383,7 @@ export async function synthesizeProspectBriefing(
     signal?.throwIfAborted();
     emit({
       type: "phase",
-      phase: WORKFLOW_PHASE.synthesis,
+      phase: CHAT_PHASE.synthesis,
       detail: runtimeLabels.synthesisUnavailable,
     });
     return null;
@@ -374,9 +430,10 @@ export function formatProspectOutcome(
     composite: scoreState.composite,
     companyName: briefing.companyName ?? briefing.url,
     url: briefing.url,
-    categoryLabels: scoreState.composite.weighted.map((row) =>
-      localizedCategoryName(runtimeLabels, row.category),
-    ),
+    categories: scoreState.composite.weighted.map((row) => ({
+      ...row,
+      category: localizedCategoryName(runtimeLabels, row.category),
+    })),
     confidenceLabel: localizedConfidence(
       runtimeLabels,
       scoreState.composite.confidence,
@@ -385,145 +442,59 @@ export function formatProspectOutcome(
 }
 
 /**
- * Fetch up to MAX_SUBPAGES known-interesting subpages in parallel.
+ * Fetch the first link matching each subpage pattern, in parallel. A page
+ * that fails or answers with an error status is simply absent from the
+ * briefing; its text is never read as evidence.
  * @param internalLinks same-origin links from the homepage
+ * @param companyName the prospect's own name, used to drop outside people
  * @param signal cancels outstanding page requests
- * @returns fetched pages as bounded text plus raw HTML
+ * @returns fetched pages as bounded text, with contacts from the people pages
  */
 async function fetchSubpages(
   internalLinks: string[],
+  companyName: string | null,
   signal?: AbortSignal,
-): Promise<(BriefingPage & { html: string })[]> {
-  const picked = new Map<string, string>();
-  for (const { name, pattern } of SUBPAGE_PATTERNS) {
-    const link = internalLinks.find((candidate) => pattern.test(candidate));
-    if (link && !picked.has(name)) {
-      picked.set(name, link);
-    }
-  }
+): Promise<FetchedSubpage[]> {
+  const picked = SUBPAGE_PATTERNS.flatMap(({ name, pattern }) => {
+    const url = internalLinks.find((candidate) => pattern.test(candidate));
+    return url ? [{ name, url }] : [];
+  });
   const settled = await Promise.allSettled(
-    [...picked.entries()].slice(0, MAX_SUBPAGES).map(async ([name, url]) => {
+    picked.map(async ({ name, url }): Promise<FetchedSubpage> => {
       const page = await fetchPage(url, signal);
+      const $ = loadPage(page.html);
+      const contacts = CONTACT_PAGE_NAMES.has(name)
+        ? findContacts(page.html, companyName, $)
+        : null;
       return {
         name,
         url: page.url,
-        text: htmlToText(page.html).slice(0, PAGE_TEXT_BUDGET),
-        html: page.html,
+        text: htmlToText(page.html, $).slice(0, PAGE_TEXT_BUDGET),
+        contacts,
       };
     }),
   );
   signal?.throwIfAborted();
   return settled
     .filter(
-      (result): result is PromiseFulfilledResult<BriefingPage & { html: string }> =>
+      (result): result is PromiseFulfilledResult<FetchedSubpage> =>
         result.status === "fulfilled",
     )
     .map((result) => result.value);
 }
 
 /**
- * Extract people from team pages, falling back to the homepage.
- * @param subpages fetched subpages with raw HTML
- * @param homepageHtml raw homepage HTML
- * @param companyName the prospect's own name, used to drop outside people
- * @returns deduplicated contact candidates
+ * Collapse the same person found on several pages into one contact.
+ * @param contacts people found across the fetched pages, in page order
+ * @returns the first occurrence of each person
  */
-function extractContacts(
-  subpages: (BriefingPage & { html: string })[],
-  homepageHtml: string,
-  companyName: string | null,
-): ContactCandidate[] {
-  const teamPages = subpages.filter(
-    (page) => page.name === "team" || page.name === "about",
-  );
-  const sources =
-    teamPages.length > 0
-      ? teamPages.map((page) => page.html)
-      : [homepageHtml];
+function mergeContacts(contacts: ContactCandidate[]): ContactCandidate[] {
   const byName = new Map<string, ContactCandidate>();
-  for (const source of sources) {
-    for (const person of findContacts(source, companyName)) {
-      const key = normalizeName(person.name);
-      if (!byName.has(key)) byName.set(key, person);
-    }
+  for (const person of contacts) {
+    const key = normalizeName(person.name);
+    if (!byName.has(key)) byName.set(key, person);
   }
   return [...byName.values()];
-}
-
-/**
- * Run all five subagents in parallel, emitting per-agent progress.
- * @param config LLM credentials
- * @param briefing the discovery briefing
- * @param emit progress callback
- * @param sellingContext optional description of the seller's product/ICP
- * @param requesterMessage the requester's own chat message, for language detection only
- * @param responseLanguage language recognized from the latest user message
- * @param runtimeLabels translated agent progress labels
- * @param signal cancels all subagent requests
- * @returns settled results in SUBAGENTS order
- */
-async function runSubagents(
-  config: LlmConfig,
-  briefing: DiscoveryBriefing,
-  emit: EmitCallback,
-  sellingContext: string | null,
-  requesterMessage: string,
-  responseLanguage: string,
-  runtimeLabels: RuntimeLabels,
-  signal?: AbortSignal,
-): Promise<PromiseSettledResult<SubagentResult>[]> {
-  const briefingJson = JSON.stringify(briefing).slice(
-    0,
-    SUBAGENT_BRIEFING_CHAR_BUDGET,
-  );
-  const promptContent = subagentUserMessage(
-    briefingJson,
-    sellingContext,
-    requesterMessage,
-    responseLanguage,
-  );
-  const results = await runGraphWorkerPool(
-    SUBAGENTS,
-    SUBAGENTS.length,
-    async (definition): Promise<PromiseSettledResult<SubagentResult>> => {
-      const displayName = localizedAgentName(runtimeLabels, definition.name);
-      emitAgentProgress(emit, runtimeLabels, displayName, "running");
-      try {
-        const result = await retryOperation(
-          () =>
-            structuredChatCompletion(
-              config,
-              [
-                { role: "system", content: definition.systemPrompt },
-                { role: "user", content: promptContent },
-              ],
-              SUBAGENT_RESULT_SCHEMA,
-              {
-                temperature: 0.2,
-                schemaName: "prospect_subagent_result",
-                signal,
-              },
-            ),
-          { ...STRUCTURED_LLM_RETRY_OPTIONS, signal },
-        );
-        emitAgentProgress(
-          emit,
-          runtimeLabels,
-          displayName,
-          "done",
-          result.score,
-        );
-        return { status: "fulfilled", value: result };
-      } catch {
-        signal?.throwIfAborted();
-        emitAgentProgress(emit, runtimeLabels, displayName, "failed");
-        return { status: "rejected", reason: "analysis_unavailable" };
-      }
-    },
-    signal,
-  );
-  signal?.throwIfAborted();
-  return results;
 }
 
 /**
@@ -544,7 +515,7 @@ async function runSynthesis(
   briefing: DiscoveryBriefing,
   results: PromiseSettledResult<SubagentResult>[],
   composite: ProspectComposite,
-  bant: ReturnType<typeof scoreBant>,
+  bant: BantResult,
   sellingContext: string | null,
   requesterMessage: string,
   responseLanguage: string,
@@ -552,9 +523,14 @@ async function runSynthesis(
 ): Promise<SynthesisResult> {
   const agentSummaries = subagentOutcomes(results)
     .map(({ definition, settled }) => {
+      // The effective score, so the synthesis reads the same number the
+      // report's breakdown table shows even where scoring overrode a worker.
+      const score =
+        composite.weighted.find((row) => row.category === definition.category)
+          ?.score ?? NEUTRAL_CATEGORY_SCORE;
       const body =
         settled.status === "fulfilled"
-          ? `score ${settled.value.score}/100 - ${settled.value.summary} recommendation: ${settled.value.recommendation}`
+          ? `score ${score}/100 - ${settled.value.summary} recommendation: ${settled.value.recommendation}`
           : "analysis unavailable - neutral score assigned";
       return `${definition.name}: ${body}`;
     })
@@ -563,7 +539,7 @@ async function runSynthesis(
   const messages: LlmMessage[] = [
     {
       role: "system",
-      content: `You are the synthesis writer of a sales intelligence report. You receive a discovery briefing, five subagent verdicts, and a deterministic composite score. Write the narrative sections with absolute fidelity to the evidence: never invent facts, people, numbers, or events. ${UNTRUSTED_WEB_CONTENT_RULES} The first email must be copy-paste ready, under 100 words, one low-friction CTA framed as a question, personalized with real data from the briefing. When the top contact is unknown, address it to the most plausible role and mark it clearly as unverified. When a WHAT WE SELL line is given in the user message, tailor the pitch and CTA specifically to that offering; when it is absent, keep the email focused on the prospect's own situation and do not invent or assume a specific product. ${RESPOND_IN_USER_LANGUAGE}
+      content: `You are the synthesis writer of a sales intelligence report. You receive a discovery briefing, five subagent verdicts, and a deterministic composite score. Write the narrative sections with absolute fidelity to the evidence: never invent facts, people, numbers, or events. ${UNTRUSTED_WEB_CONTENT_RULES} The first email must be copy-paste ready, under 100 words, one low-friction CTA framed as a question, personalized with real data from the briefing. When the top contact is unknown, address it to the most plausible role and mark it clearly as unverified. When a ${SELLING_CONTEXT_MARKER} line is given in the user message, tailor the pitch and CTA specifically to that offering; when it is absent, keep the email focused on the prospect's own situation and do not invent or assume a specific product. ${RESPOND_IN_USER_LANGUAGE}
 The user message also includes a LABELS object: a fixed set of short report section labels. Translate each of its values into the same language as everything above (echo unchanged if that's already English) and return it under "labels" with the exact same keys - never add, remove, or rename keys, and never translate product or brand names.
 It also includes four BANT rows. Translate only each row's name and evidence without changing their order, scores, meaning, or factual content, and return those translations under "bantTranslations".
 
@@ -580,7 +556,7 @@ Respond with ONLY JSON of this shape:
       role: "user",
       content: `${responseLanguageContext(responseLanguage, requesterMessage)}\n\nCOMPOSITE SCORE: ${composite.score}/100 (${composite.grade}, confidence ${composite.confidence})
 COMPANY: ${briefing.companyName ?? "Unknown"} - ${briefing.url}
-${sellingContext ? `WHAT WE SELL: ${sellingContext}\n` : ""}TOP CONTACT: ${topContact ? `${topContact.name}, ${topContact.title ?? "title unknown"}` : "none found"}
+${sellingContext ? `${SELLING_CONTEXT_MARKER}: ${sellingContext}\n` : ""}TOP CONTACT: ${topContact ? `${topContact.name}, ${topContact.title ?? "title unknown"}` : "none found"}
 SUBAGENT VERDICTS:
 ${agentSummaries}
 
@@ -591,14 +567,10 @@ DISCOVERY BRIEFING (excerpt):
 ${JSON.stringify({ ...briefing, pages: briefing.pages.slice(0, SYNTHESIS_PAGE_LIMIT) }).slice(0, SYNTHESIS_BRIEFING_CHAR_BUDGET)}`,
     },
   ];
-  const parsed = await structuredChatCompletion(
-    config,
-    messages,
-    SYNTHESIS_SCHEMA,
-    { temperature: 0.3, schemaName: "prospect_synthesis", signal },
-  );
-  return {
-    ...parsed,
-    labels: mergeLabelSet(PROSPECT_REPORT_LABELS, parsed.labels),
-  };
+  // The labels are completed where the report reads them, not here.
+  return structuredChatCompletion(config, messages, SYNTHESIS_SCHEMA, {
+    temperature: 0.3,
+    schemaName: "prospect_synthesis",
+    signal,
+  });
 }

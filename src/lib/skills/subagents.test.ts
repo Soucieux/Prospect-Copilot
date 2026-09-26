@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SUBAGENTS, subagentUserMessage } from "./subagents";
+import { CATEGORY_WEIGHTS } from "@/lib/scoring/lead-scorer";
 
 describe("SUBAGENTS", () => {
   it("gives every agent scoring dimensions that can reach exactly 100", () => {
@@ -24,8 +25,18 @@ describe("SUBAGENTS", () => {
   });
 
   it("keeps the design doc's category weights summing to one", () => {
-    const total = SUBAGENTS.reduce((sum, agent) => sum + agent.weight, 0);
+    const total = SUBAGENTS.reduce(
+      (sum, agent) => sum + CATEGORY_WEIGHTS[agent.category],
+      0,
+    );
     expect(Number(total.toFixed(2))).toBe(1);
+  });
+
+  it("tells each worker the share its category carries", () => {
+    for (const definition of SUBAGENTS) {
+      const share = Math.round(CATEGORY_WEIGHTS[definition.category] * 100);
+      expect(definition.systemPrompt).toContain(`${share}%`);
+    }
   });
 });
 

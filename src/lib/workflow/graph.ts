@@ -4,23 +4,21 @@ import {
   routeMessageForWorkflow,
   type ResolvedRouterResult,
 } from "@/lib/agent/router";
+import type { ChatHistoryItem } from "@/lib/chat-history";
+import { DEFAULT_RESPONSE_LANGUAGE } from "@/lib/constants";
 import { RUNTIME_LABEL_DEFAULTS } from "@/lib/localization";
 import type { WorkflowRuntimeContext } from "@/lib/workflow/context";
-import {
-  DEFAULT_RESPONSE_LANGUAGE,
-  ROUTER_RETRY_POLICY,
-  WORKFLOW_NODE,
-} from "@/lib/workflow/constants";
+import { ROUTER_RETRY_POLICY, WORKFLOW_NODE } from "@/lib/workflow/constants";
 import { isRetryableRouterError } from "@/lib/workflow/errors";
 import { createMatchSubgraph } from "@/lib/workflow/match";
 import { createProspectSubgraph } from "@/lib/workflow/prospect";
 import {
   createStandaloneSubgraph,
+  isStandaloneSkill,
   runPlainChatNode,
 } from "@/lib/workflow/standalone";
 import {
   WorkflowStateAnnotation,
-  type WorkflowHistoryItem,
   type WorkflowState,
   type WorkflowStateUpdate,
 } from "@/lib/workflow/state";
@@ -29,11 +27,15 @@ import {
 export interface WorkflowInput {
   requestId: string;
   message: string;
-  history: WorkflowHistoryItem[];
+  history: ChatHistoryItem[];
 }
 
-/** Routing fallback used only after invalid structured output exhausts retry. */
-const FALLBACK_ROUTING: ResolvedRouterResult = {
+/**
+ * Routing fallback used only after invalid structured output exhausts retry.
+ * Exported so the routing tests assert against the one real value rather
+ * than a copy that can drift from it.
+ */
+export const FALLBACK_ROUTING: ResolvedRouterResult = {
   skill: "none",
   url: null,
   entity: null,
@@ -107,12 +109,7 @@ export function selectWorkflow(state: WorkflowState): string {
   if (skill === "prospect" && (state.routing?.url || state.routing?.entity)) {
     return WORKFLOW_NODE.prospectSubgraph;
   }
-  if (
-    skill === "research" ||
-    skill === "qualify" ||
-    skill === "contacts" ||
-    skill === "outreach"
-  ) {
+  if (skill !== undefined && isStandaloneSkill(skill)) {
     return WORKFLOW_NODE.standaloneSubgraph;
   }
   return WORKFLOW_NODE.plainChat;

@@ -30,6 +30,9 @@ const TITLE_PATTERN =
 
 const LINKEDIN_PERSON_PATTERN = /linkedin\.com\/in\//i;
 
+/** Anchors that link to a personal LinkedIn profile. */
+const LINKEDIN_PERSON_SELECTOR = 'a[href*="linkedin.com/in/"]';
+
 /** Longest a neighbouring text run can be and still read as a job title. */
 const MAX_TITLE_LENGTH = 80;
 
@@ -57,7 +60,7 @@ const TRAILING_EMPLOYER_PATTERN = /,\s*([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*)?)\s*
 const COMPANY_NOISE_PATTERN = /\b(inc|llc|ltd|limited|corp|corporation|co|plc|gmbh|sa|ab|oy)\b|[^a-z0-9 ]/g;
 
 /** Splits "Jane Doe, Chief Executive Officer" into its two halves. */
-const INLINE_TITLE_PATTERN = /^(.+?)\s*(?:,|\||\u00b7|\u2014|\u2013|\s-\s)\s*(.+)$/;
+const INLINE_TITLE_PATTERN = /^(.+?)\s*(?:,|\||·|—|–|\s-\s)\s*(.+)$/;
 
 const C_SUITE_PATTERN = /\b(CEO|CTO|CFO|COO|CIO|CRO|CMO|CPO|CISO|CHRO|Chief|Founder|Co-?founder|President|Chairman|Owner)\b/i;
 const VP_PATTERN = /\b(VP\b|Vice President|Head of)\b/i;
@@ -82,16 +85,19 @@ const CHAMPION_PATTERN =
  * "Not publicly available" rather than discarding a confirmed real name.
  * About pages routinely list investors and advisors beside staff, so anyone
  * whose title names a different employer is dropped: they are not contacts
- * at this prospect.
+ * at this prospect. When a caller shares an already-loaded document, this
+ * removes its script and style elements, so it must run after any reader
+ * that needs them.
  * @param html raw page HTML
  * @param companyName the prospect's own name, when discovery resolved one
+ * @param $ the page already loaded with `loadPage`, when a caller shares it
  * @returns deduplicated people, JSON-LD sources first
  */
 export function findContacts(
   html: string,
   companyName: string | null = null,
+  $: cheerio.CheerioAPI = cheerio.load(html),
 ): ContactCandidate[] {
-  const $ = cheerio.load(html);
   const byName = new Map<string, ContactCandidate>();
   for (const person of extractJsonLdPeople($)) {
     byName.set(normalizeName(person.name), person);
@@ -149,6 +155,7 @@ function employerNamedIn(title: string): string | null {
  * @returns true when both plausibly name the same company
  */
 function isSameCompany(employer: string, companyName: string): boolean {
+  /** Lower-case a company name and strip legal-form noise for comparison. */
   const normalize = (value: string): string =>
     value.toLowerCase().replace(COMPANY_NOISE_PATTERN, " ").replace(/\s+/g, " ").trim();
   const left = normalize(employer);
@@ -219,7 +226,13 @@ function collectTextBlocks($: cheerio.CheerioAPI): TextBlock[] {
   const blocks: TextBlock[] = [];
   for (const node of $("body *").toArray()) {
     const element = $(node);
-    const own = element.clone().children().remove().end().text();
+    // Only the element's own text nodes: reading them directly costs one pass
+    // per element, where cloning the subtree to strip its children cost the
+    // whole subtree for every element on the page.
+    const own = element
+      .contents()
+      .filter((_index, child) => child.type === "text")
+      .text();
     const text = own.replace(/\s+/g, " ").trim();
     if (text) blocks.push({ text, element });
   }
@@ -237,11 +250,14 @@ function extractHtmlPeople($: cheerio.CheerioAPI): ContactCandidate[] {
   const people: ContactCandidate[] = [];
   const seen = new Set<string>();
   const blocks = collectTextBlocks($);
+  // Most pages link to no personal profile at all; checking once here saves
+  // an ancestor walk for every name-shaped block on such a page.
+  const hasProfileLinks = $(LINKEDIN_PERSON_SELECTOR).length > 0;
   for (const [index, block] of blocks.entries()) {
     const inline = splitInlineTitle(block.text);
     const name = inline?.name ?? (looksLikeName(block.text) ? block.text : null);
     if (name === null || seen.has(normalizeName(name))) continue;
-    const linkedin = findLinkedin($, block.element);
+    const linkedin = hasProfileLinks ? findLinkedin($, block.element) : null;
     const title = inline?.title ?? neighbourTitle(blocks[index + 1]);
     if (title === null && linkedin === null) continue;
     seen.add(normalizeName(name));
@@ -307,10 +323,9 @@ function findLinkedin(
     const hrefs = [
       ...new Set(
         scope
-          .find("a[href]")
+          .find(LINKEDIN_PERSON_SELECTOR)
           .toArray()
-          .map((anchor) => $(anchor).attr("href") ?? "")
-          .filter((href) => LINKEDIN_PERSON_PATTERN.test(href)),
+          .map((anchor) => $(anchor).attr("href") ?? ""),
       ),
     ];
     const [onlyHref] = hrefs;

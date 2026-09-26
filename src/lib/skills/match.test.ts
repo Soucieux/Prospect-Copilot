@@ -5,15 +5,17 @@ import {
   resolveCandidates,
   resolveMatchCandidatesStage,
   scoreMatchCandidatesStage,
+  type CandidatePool,
   type CandidateScore,
+  type MatchRequest,
+  type ResolvedCandidate,
 } from "./match";
 import {
   formatMatchSkillResult,
   rankCandidates,
   renderMatchReport,
 } from "./match-report";
-import type { EmitCallback, MatchDirection } from "@/lib/agent/schemas";
-import type { RuntimeLabels } from "@/lib/localization";
+import type { EmitCallback } from "@/lib/agent/schemas";
 import type { LlmConfig } from "@/lib/llm";
 import { RUNTIME_LABEL_DEFAULTS } from "@/lib/localization";
 
@@ -46,6 +48,43 @@ const DEFAULT_SCORE_JSON = {
 };
 
 /**
+ * Build one match request with only the fields under test.
+ * @param overrides request fields the assertion cares about
+ * @returns a complete match request
+ */
+function request(overrides: Partial<MatchRequest> = {}): MatchRequest {
+  return {
+    sellingContext: "payroll software",
+    candidates: null,
+    requesterMessage: "",
+    responseLanguage: "English",
+    runtimeLabels: RUNTIME_LABEL_DEFAULTS,
+    matchDirection: "sell",
+    matchLocation: null,
+    ...overrides,
+  };
+}
+
+/**
+ * Build one resolved candidate for a homepage URL.
+ * @param url the resolved homepage
+ * @param nameHint the name discovery gave it, when any
+ * @returns the candidate as the scoring stage receives it
+ */
+function candidate(url: string, nameHint: string | null = null): ResolvedCandidate {
+  return { url, nameHint };
+}
+
+/**
+ * Read the resolved URLs out of a candidate pool.
+ * @param pool the resolution stage output
+ * @returns the URLs in pool order
+ */
+function urlsOf(pool: CandidatePool): string[] {
+  return pool.candidates.map((entry) => entry.url);
+}
+
+/**
  * Stub the single chat-completions endpoint, branching the canned response
  * by which system prompt the call used (quick-score, candidate suggestion,
  * or name-to-URL resolution) since all three now hit the same LLM.
@@ -74,6 +113,19 @@ function stubNetwork(options: {
       );
     }),
   );
+}
+
+/**
+ * Read the messages one provider call carried.
+ * @param index which provider call to read
+ * @returns the messages that call carried
+ */
+function messagesOfCall(index = 0): { content: string }[] {
+  const call = vi.mocked(fetch).mock.calls[index];
+  const body = JSON.parse(String(call?.[1]?.body)) as {
+    messages: { content: string }[];
+  };
+  return body.messages;
 }
 
 afterEach(() => {
@@ -131,11 +183,7 @@ describe("renderMatchReport", () => {
   };
 
   it("lists ranked candidates with score, description, location, and founded", () => {
-    const { markdown, title, matches } = renderMatchReport(
-      "payroll software",
-      [acme],
-      1,
-    );
+    const { markdown, title } = renderMatchReport("payroll software", [acme], 1);
     expect(markdown).toContain("Acme Corp");
     expect(markdown).toContain("82");
     expect(markdown).toContain("https://acme.example.com");
@@ -145,7 +193,6 @@ describe("renderMatchReport", () => {
     );
     expect(markdown).toContain("San Francisco, CA");
     expect(markdown).toContain("1998");
-    expect(matches).toEqual([acme]);
     expect(title.length).toBeGreaterThan(0);
   });
 
@@ -164,10 +211,9 @@ describe("renderMatchReport", () => {
   });
 
   it("renders a clear message when no candidates could be scored", () => {
-    const { markdown, matches } = renderMatchReport("payroll software", [], 0);
+    const { markdown } = renderMatchReport("payroll software", [], 0);
     expect(markdown.length).toBeGreaterThan(0);
     expect(markdown).not.toContain("undefined");
-    expect(matches).toEqual([]);
   });
 
   it("uses translated labels when a custom label set is passed", () => {
@@ -188,7 +234,6 @@ describe("renderMatchReport", () => {
       auditPrompt: "Pregunta por cualquiera de estos.",
       auditHint: "Haz clic para la auditoría completa →",
       auditRequestTemplate: "Analiza {url} como prospecto",
-      nudge: "¿Qué vendes?",
     };
     const { markdown, title } = renderMatchReport(
       "software de nómina",
@@ -220,74 +265,83 @@ describe("renderMatchReport", () => {
 describe("resolveCandidates", () => {
   it("uses supplied URLs as-is without any LLM call", async () => {
     stubNetwork({});
-    const result = await resolveCandidates(
+    const pool = await resolveCandidates(
       CONFIG,
-      ["https://acme.example.com"],
-      "payroll software",
+      request({ candidates: ["https://acme.example.com"] }),
     );
-    expect(result.urls).toEqual(["https://acme.example.com/"]);
+    expect(urlsOf(pool)).toEqual(["https://acme.example.com/"]);
+    expect(pool.candidates[0]?.nameHint).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("resolves a supplied company name via an LLM guess", async () => {
+  it("resolves a supplied company name via an LLM guess and keeps the name", async () => {
     stubNetwork({ urlGuess: "https://acme.example.com" });
-    const result = await resolveCandidates(
+    const pool = await resolveCandidates(
       CONFIG,
-      ["Acme Corp"],
-      "payroll software",
+      request({ candidates: ["Acme Corp"] }),
     );
-    expect(result.urls).toEqual(["https://acme.example.com/"]);
+    expect(urlsOf(pool)).toEqual(["https://acme.example.com/"]);
+    expect(pool.candidates[0]?.nameHint).toBe("Acme Corp");
   });
 
   it("resolves a bare Unicode company name instead of making a Punycode URL", async () => {
     stubNetwork({ urlGuess: "https://www.ikea.cn" });
-    const result = await resolveCandidates(
+    const pool = await resolveCandidates(
       CONFIG,
-      ["宜家家居"],
-      "羊毛毯",
-      "我想去卖羊毛毯，如何选择",
-      "Chinese",
+      request({
+        candidates: ["宜家家居"],
+        sellingContext: "羊毛毯",
+        requesterMessage: "我想去卖羊毛毯，如何选择",
+        responseLanguage: "Chinese",
+      }),
     );
-    expect(result.urls).toEqual(["https://www.ikea.cn/"]);
-    expect(result.urls.some((url) => url.includes("xn--"))).toBe(false);
+    expect(urlsOf(pool)).toEqual(["https://www.ikea.cn/"]);
+    expect(urlsOf(pool).some((url) => url.includes("xn--"))).toBe(false);
   });
 
   it("drops a product term rather than converting it into a Punycode URL", async () => {
     stubNetwork({ urlGuess: "unknown" });
-    const result = await resolveCandidates(
+    const pool = await resolveCandidates(
       CONFIG,
-      ["羊毛毯"],
-      "羊毛毯",
-      "羊毛毯",
-      "Chinese",
+      request({
+        candidates: ["羊毛毯"],
+        sellingContext: "羊毛毯",
+        requesterMessage: "羊毛毯",
+        responseLanguage: "Chinese",
+      }),
     );
-    expect(result.urls).toEqual([]);
+    expect(urlsOf(pool)).toEqual([]);
   });
 
   it("rejects an explicitly prefixed product term as a single-label host", async () => {
     stubNetwork({});
-    const result = await resolveCandidates(
+    const pool = await resolveCandidates(
       CONFIG,
-      ["https://羊毛毯"],
-      "羊毛毯",
-      "羊毛毯",
-      "Chinese",
+      request({
+        candidates: ["https://羊毛毯"],
+        sellingContext: "羊毛毯",
+        requesterMessage: "羊毛毯",
+        responseLanguage: "Chinese",
+      }),
     );
-    expect(result.urls).toEqual([]);
+    expect(urlsOf(pool)).toEqual([]);
   });
 
   it("drops a guessed URL that isn't a real company site", async () => {
     stubNetwork({ urlGuess: "https://linkedin.com/company/acme" });
-    const result = await resolveCandidates(
+    const pool = await resolveCandidates(
       CONFIG,
-      ["Acme Corp"],
-      "payroll software",
+      request({ candidates: ["Acme Corp"] }),
     );
-    expect(result.urls).toEqual([]);
+    expect(urlsOf(pool)).toEqual([]);
   });
 
   it("returns an empty list when there is nothing to work with", async () => {
-    const result = await resolveCandidates(CONFIG, null, null);
-    expect(result.urls).toEqual([]);
+    const pool = await resolveCandidates(
+      CONFIG,
+      request({ candidates: null, sellingContext: null }),
+    );
+    expect(urlsOf(pool)).toEqual([]);
   });
 
   it("asks the LLM to suggest candidates in discovery mode and resolves each", async () => {
@@ -300,14 +354,14 @@ describe("resolveCandidates", () => {
       },
       urlGuess: "https://globex.example.com",
     });
-    const result = await resolveCandidates(
+    const pool = await resolveCandidates(
       CONFIG,
-      null,
-      "payroll software",
-      "どの会社を対象にすべきですか？",
-      "Japanese",
+      request({
+        requesterMessage: "どの会社を対象にすべきですか？",
+        responseLanguage: "Japanese",
+      }),
     );
-    expect(result.urls).toEqual([
+    expect(urlsOf(pool)).toEqual([
       "https://acme.example.com/",
       "https://globex.example.com/",
     ]);
@@ -334,14 +388,11 @@ describe("resolveCandidates", () => {
       url: `https://company-${index + 1}.example.com`,
     }));
     stubNetwork({ suggestJson: { candidates } });
-    const result = await resolveCandidates(
+    const pool = await resolveCandidates(
       CONFIG,
-      null,
-      "payroll software",
-      "find companies",
-      "English",
+      request({ requesterMessage: "find companies" }),
     );
-    expect(result.urls).toHaveLength(12);
+    expect(urlsOf(pool)).toHaveLength(12);
   });
 
   it("bounds explicit candidate resolution work before starting workers", async () => {
@@ -351,13 +402,9 @@ describe("resolveCandidates", () => {
     );
     stubNetwork({ urlGuess: "https://resolved.example.com" });
 
-    const result = await resolveCandidates(
-      CONFIG,
-      candidates,
-      "payroll software",
-    );
+    const pool = await resolveCandidates(CONFIG, request({ candidates }));
 
-    expect(result.urls).toEqual(["https://resolved.example.com/"]);
+    expect(urlsOf(pool)).toEqual(["https://resolved.example.com/"]);
     expect(fetch).toHaveBeenCalledTimes(12);
   });
 
@@ -365,71 +412,63 @@ describe("resolveCandidates", () => {
     stubNetwork({ suggestJson: { candidates: [] } });
     await resolveCandidates(
       CONFIG,
-      null,
-      "plateforme de paie pour entreprises québécoises",
-      "Trouvez des entreprises au Québec",
-      "French",
-      "sell",
-      "Québec",
+      request({
+        sellingContext: "plateforme de paie pour entreprises québécoises",
+        requesterMessage: "Trouvez des entreprises au Québec",
+        responseLanguage: "French",
+        matchLocation: "Québec",
+      }),
     );
-    const call = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(call?.[1]?.body)) as {
-      messages: { content: string }[];
-    };
-    expect(body.messages[0]?.content).toContain(
+    const messages = messagesOfCall();
+    expect(messages[0]?.content).toContain(
       "REQUESTED LOCATION, it is a hard discovery",
     );
-    expect(body.messages[1]?.content).toContain(
-      "REQUESTED LOCATION: Québec",
-    );
+    expect(messages[1]?.content).toContain("REQUESTED LOCATION: Québec");
   });
 
   it("discovers sellers with the existing candidate pipeline in buy mode", async () => {
     stubNetwork({ suggestJson: { candidates: [] } });
     await resolveCandidates(
       CONFIG,
-      null,
-      "羊毛毯",
-      "哪里可以买到羊毛毯？",
-      "Chinese",
-      "buy",
-      "多伦多",
+      request({
+        sellingContext: "羊毛毯",
+        requesterMessage: "哪里可以买到羊毛毯？",
+        responseLanguage: "Chinese",
+        matchDirection: "buy",
+        matchLocation: "多伦多",
+      }),
     );
-    const call = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(call?.[1]?.body)) as {
-      messages: { content: string }[];
-    };
-    expect(body.messages[0]?.content).toContain(
+    const messages = messagesOfCall();
+    expect(messages[0]?.content).toContain(
       "for buy,\nsuggest plausible sellers",
     );
-    expect(body.messages[1]?.content).toContain("MATCH DIRECTION: buy");
-    expect(body.messages[1]?.content).toContain("PRODUCT CONTEXT: 羊毛毯");
-    expect(body.messages[1]?.content).toContain("REQUESTED LOCATION: 多伦多");
+    expect(messages[1]?.content).toContain("MATCH DIRECTION: buy");
+    expect(messages[1]?.content).toContain("PRODUCT CONTEXT: 羊毛毯");
+    expect(messages[1]?.content).toContain("REQUESTED LOCATION: 多伦多");
   });
 
   it("retains language-based market inference when no location is supplied", async () => {
     stubNetwork({ suggestJson: { candidates: [] } });
     await resolveCandidates(
       CONFIG,
-      null,
-      "payroll software",
-      "quali aziende dovremmo contattare?",
-      "Italian",
+      request({
+        requesterMessage: "quali aziende dovremmo contattare?",
+        responseLanguage: "Italian",
+      }),
     );
-    const call = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(call?.[1]?.body)) as {
-      messages: { content: string }[];
-    };
-    expect(body.messages[0]?.content).toContain(
+    const messages = messagesOfCall();
+    expect(messages[0]?.content).toContain(
       "only when REQUESTED LOCATION is absent",
     );
-    expect(body.messages[1]?.content).toContain(
+    expect(messages[1]?.content).toContain(
       "REQUESTED LOCATION: not specified",
     );
   });
 });
 
 describe("quickScoreCandidate", () => {
+  const acme = candidate("https://acme.example.com");
+
   it("scores a candidate and fills description/fitReason from the LLM", async () => {
     stubNetwork({
       scoreJson: {
@@ -439,11 +478,7 @@ describe("quickScoreCandidate", () => {
         fitReason: "Strong fit for the described offering.",
       },
     });
-    const result = await quickScoreCandidate(
-      CONFIG,
-      "payroll software",
-      "https://acme.example.com",
-    );
+    const result = await quickScoreCandidate(CONFIG, acme, request());
     expect(result).not.toBeNull();
     expect(result?.score).toBe(82);
     expect(result?.companyName).toBe("Acme Corp");
@@ -460,8 +495,8 @@ describe("quickScoreCandidate", () => {
     });
     const result = await quickScoreCandidate(
       CONFIG,
-      "toys",
-      "https://about.mattel.com",
+      candidate("https://about.mattel.com"),
+      request({ sellingContext: "toys" }),
     );
     expect(result?.companyName).toBe("Mattel, Inc.");
   });
@@ -471,15 +506,23 @@ describe("quickScoreCandidate", () => {
     stubNetwork({ scoreJson: scoreWithoutName });
     const result = await quickScoreCandidate(
       CONFIG,
-      "toys",
-      "https://about.mattel.com",
-      "",
-      "English",
-      undefined,
-      "Mattel, Inc.",
+      candidate("https://about.mattel.com", "Mattel, Inc."),
+      request({ sellingContext: "toys" }),
     );
     expect(result).toBeNull();
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("sends the discovery name hint with the homepage evidence", async () => {
+    stubNetwork({});
+    await quickScoreCandidate(
+      CONFIG,
+      candidate("https://about.mattel.com", "Mattel, Inc."),
+      request({ sellingContext: "toys" }),
+    );
+    expect(messagesOfCall()[1]?.content).toContain(
+      "CANDIDATE NAME HINT: Mattel, Inc.",
+    );
   });
 
   it("fills location and founded from the page's own structured data", async () => {
@@ -491,22 +534,14 @@ describe("quickScoreCandidate", () => {
 </head><body>Payroll for growing teams</body></html>`,
     });
     stubNetwork({});
-    const result = await quickScoreCandidate(
-      CONFIG,
-      "payroll software",
-      "https://acme.example.com",
-    );
+    const result = await quickScoreCandidate(CONFIG, acme, request());
     expect(result?.location).toBe("San Francisco, CA");
     expect(result?.founded).toBe("1998");
   });
 
   it("leaves location and founded null when the page has no structured data", async () => {
     stubNetwork({});
-    const result = await quickScoreCandidate(
-      CONFIG,
-      "payroll software",
-      "https://acme.example.com",
-    );
+    const result = await quickScoreCandidate(CONFIG, acme, request());
     expect(result?.location).toBeNull();
     expect(result?.founded).toBeNull();
   });
@@ -516,8 +551,8 @@ describe("quickScoreCandidate", () => {
     vi.mocked(fetchWithVariants).mockRejectedValueOnce(new Error("unreachable"));
     const result = await quickScoreCandidate(
       CONFIG,
-      "payroll software",
-      "https://unreachable.example.com",
+      candidate("https://unreachable.example.com"),
+      request(),
     );
     expect(result).toBeNull();
   });
@@ -533,8 +568,8 @@ describe("quickScoreCandidate", () => {
     });
     vi.mocked(fetchWithVariants).mockRejectedValueOnce(new Error("unreachable"));
     const results = await Promise.all([
-      quickScoreCandidate(CONFIG, "payroll software", "https://bad.example.com"),
-      quickScoreCandidate(CONFIG, "payroll software", "https://good.example.com"),
+      quickScoreCandidate(CONFIG, candidate("https://bad.example.com"), request()),
+      quickScoreCandidate(CONFIG, candidate("https://good.example.com"), request()),
     ]);
     expect(results[0]).toBeNull();
     expect(results[1]?.score).toBe(60);
@@ -544,31 +579,21 @@ describe("quickScoreCandidate", () => {
     stubNetwork({});
     await quickScoreCandidate(
       CONFIG,
-      "payroll software",
-      "https://acme.example.com",
-      "quali aziende dovremmo contattare?",
-      "Italian",
+      acme,
+      request({
+        requesterMessage: "quali aziende dovremmo contattare?",
+        responseLanguage: "Italian",
+      }),
     );
-    const call = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(call?.[1]?.body)) as {
-      messages: { content: string }[];
-    };
-    expect(body.messages[1]?.content).toContain(
-      "DETECTED RESPONSE LANGUAGE: Italian",
-    );
-    expect(body.messages[1]?.content).toContain(
-      "quali aziende dovremmo contattare?",
-    );
+    const messages = messagesOfCall();
+    expect(messages[1]?.content).toContain("DETECTED RESPONSE LANGUAGE: Italian");
+    expect(messages[1]?.content).toContain("quali aziende dovremmo contattare?");
   });
 
   it("keeps an explicit response language even when the message is empty", async () => {
     stubNetwork({});
-    await quickScoreCandidate(CONFIG, "payroll software", "https://acme.example.com");
-    const call = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(call?.[1]?.body)) as {
-      messages: { content: string }[];
-    };
-    expect(body.messages[1]?.content).toContain(
+    await quickScoreCandidate(CONFIG, acme, request());
+    expect(messagesOfCall()[1]?.content).toContain(
       "DETECTED RESPONSE LANGUAGE: English",
     );
   });
@@ -577,23 +602,20 @@ describe("quickScoreCandidate", () => {
     stubNetwork({});
     await quickScoreCandidate(
       CONFIG,
-      "羊毛毯",
-      "https://acme.example.com",
-      "哪里可以买到羊毛毯？",
-      "Chinese",
-      undefined,
-      null,
-      "buy",
-      "多伦多",
+      acme,
+      request({
+        sellingContext: "羊毛毯",
+        requesterMessage: "哪里可以买到羊毛毯？",
+        responseLanguage: "Chinese",
+        matchDirection: "buy",
+        matchLocation: "多伦多",
+      }),
     );
-    const call = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(call?.[1]?.body)) as {
-      messages: { content: string }[];
-    };
-    expect(body.messages[1]?.content).toContain("MATCH DIRECTION: buy");
-    expect(body.messages[1]?.content).toContain("WHAT WE WANT TO BUY: 羊毛毯");
-    expect(body.messages[1]?.content).toContain("REQUESTED LOCATION: 多伦多");
-    expect(body.messages[0]?.content).toContain(
+    const messages = messagesOfCall();
+    expect(messages[1]?.content).toContain("MATCH DIRECTION: buy");
+    expect(messages[1]?.content).toContain("WHAT WE WANT TO BUY: 羊毛毯");
+    expect(messages[1]?.content).toContain("REQUESTED LOCATION: 多伦多");
+    expect(messages[0]?.content).toContain(
       "sells, ships, delivers, or serves that location",
     );
   });
@@ -602,33 +624,24 @@ describe("quickScoreCandidate", () => {
     stubNetwork({});
     await quickScoreCandidate(
       CONFIG,
-      "logiciel de paie",
-      "https://acme.example.com",
-      "Où vendre un logiciel de paie au Québec ?",
-      "French",
-      undefined,
-      null,
-      "sell",
-      "Québec",
+      acme,
+      request({
+        sellingContext: "logiciel de paie",
+        requesterMessage: "Où vendre un logiciel de paie au Québec ?",
+        responseLanguage: "French",
+        matchLocation: "Québec",
+      }),
     );
-    const call = vi.mocked(fetch).mock.calls[0];
-    const body = JSON.parse(String(call?.[1]?.body)) as {
-      messages: { content: string }[];
-    };
-    expect(body.messages[1]?.content).toContain("MATCH DIRECTION: sell");
-    expect(body.messages[1]?.content).toContain("REQUESTED LOCATION: Québec");
-    expect(body.messages[0]?.content).toContain(
-      "operates, purchases, or has a",
-    );
+    const messages = messagesOfCall();
+    expect(messages[1]?.content).toContain("MATCH DIRECTION: sell");
+    expect(messages[1]?.content).toContain("WHAT WE SELL: logiciel de paie");
+    expect(messages[1]?.content).toContain("REQUESTED LOCATION: Québec");
+    expect(messages[0]?.content).toContain("operates, purchases, or has a");
   });
 
   it("omits labels entirely when no labelsToTranslate is given", async () => {
     stubNetwork({});
-    const result = await quickScoreCandidate(
-      CONFIG,
-      "payroll software",
-      "https://acme.example.com",
-    );
+    const result = await quickScoreCandidate(CONFIG, acme, request());
     expect(result && "labels" in result).toBe(false);
   });
 
@@ -641,10 +654,8 @@ describe("quickScoreCandidate", () => {
     });
     const result = await quickScoreCandidate(
       CONFIG,
-      "payroll software",
-      "https://acme.example.com",
-      "",
-      "French",
+      acme,
+      request({ responseLanguage: "French" }),
       MATCH_REPORT_LABELS,
     );
     expect(result?.labels).toMatchObject({
@@ -659,64 +670,26 @@ describe("quickScoreCandidate", () => {
  * Compose the three match stages exactly as the workflow subgraph does, so
  * these tests exercise the live path rather than a wrapper around it.
  * @param config LLM credentials
- * @param sellingContext product context, or null for a neutral judgment
- * @param candidates companies named directly, or null for discovery mode
+ * @param matchRequest the validated match request
  * @param emit progress callback
- * @param requesterMessage the requester's message, for language detection
- * @param responseLanguage language recognized from the latest message
- * @param runtimeLabels translated progress and scorecard labels
- * @param matchDirection whether candidates are buyers or sellers
- * @param matchLocation explicit geographic requirement, when supplied
  * @param signal cancels discovery and scoring work
  * @returns the formatted match result
  */
 async function runMatchStages(
   config: LlmConfig,
-  sellingContext: string | null,
-  candidates: string[] | null,
+  matchRequest: MatchRequest,
   emit: EmitCallback,
-  requesterMessage: string = "",
-  responseLanguage: string = "English",
-  runtimeLabels: RuntimeLabels = RUNTIME_LABEL_DEFAULTS,
-  matchDirection: MatchDirection = "sell",
-  matchLocation: string | null = null,
   signal?: AbortSignal,
 ): Promise<ReturnType<typeof formatMatchSkillResult>> {
-  const pool = await resolveMatchCandidatesStage(
-    config,
-    sellingContext,
-    candidates,
-    emit,
-    requesterMessage,
-    responseLanguage,
-    runtimeLabels,
-    matchDirection,
-    matchLocation,
-    signal,
-  );
+  const pool = await resolveMatchCandidatesStage(config, matchRequest, emit, signal);
   const batch = await scoreMatchCandidatesStage(
     config,
+    matchRequest,
     pool,
-    sellingContext,
-    candidates,
     emit,
-    requesterMessage,
-    responseLanguage,
-    runtimeLabels,
-    matchDirection,
-    matchLocation,
     signal,
   );
-  return formatMatchSkillResult(
-    pool,
-    batch,
-    sellingContext,
-    candidates,
-    emit,
-    runtimeLabels,
-    matchDirection,
-    matchLocation,
-  );
+  return formatMatchSkillResult(matchRequest, batch);
 }
 
 describe("match stage composition", () => {
@@ -732,8 +705,9 @@ describe("match stage composition", () => {
     const events: unknown[] = [];
     const { markdown, title, matches } = await runMatchStages(
       CONFIG,
-      "payroll software",
-      ["https://acme.example.com", "https://globex.example.com"],
+      request({
+        candidates: ["https://acme.example.com", "https://globex.example.com"],
+      }),
       (event) => events.push(event),
     );
     expect(markdown).toContain("Acme Corp");
@@ -758,8 +732,7 @@ describe("match stage composition", () => {
     );
     const { matches } = await runMatchStages(
       CONFIG,
-      "payroll software",
-      candidates,
+      request({ candidates }),
       () => {},
     );
     expect(matches).toHaveLength(8);
@@ -770,26 +743,26 @@ describe("match stage composition", () => {
     const events: { type: string; detail?: string }[] = [];
     await runMatchStages(
       CONFIG,
-      "営業分析プラットフォーム",
-      ["https://acme.example.com"],
+      request({
+        sellingContext: "営業分析プラットフォーム",
+        candidates: ["https://acme.example.com"],
+        requesterMessage: "どの会社を対象にすべきですか？",
+        responseLanguage: "Japanese",
+        runtimeLabels: {
+          ...RUNTIME_LABEL_DEFAULTS,
+          resolvingCandidatesSingular: "指定された候補を確認しています",
+          scoringCandidateSingular: "候補を評価しています",
+          agentRunningTemplate: "{agent}: 実行中",
+          agentDoneTemplate: "{agent}: 完了",
+        },
+      }),
       (event) => events.push(event),
-      "どの会社を対象にすべきですか？",
-      "Japanese",
-      {
-        ...RUNTIME_LABEL_DEFAULTS,
-        resolvingCandidatesSingular: "指定された候補を確認しています",
-        scoringCandidateSingular: "候補を評価しています",
-        agentRunningTemplate: "{agent}: 実行中",
-        agentDoneTemplate: "{agent}: 完了",
-        matchComplete: "照合が完了しました",
-      },
     );
     expect(events.map((event) => event.detail)).toEqual([
       "指定された候補を確認しています",
       "候補を評価しています",
       "https://acme.example.com/: 実行中",
       "https://acme.example.com/: 完了",
-      "照合が完了しました",
     ]);
   });
 
@@ -808,26 +781,24 @@ describe("match stage composition", () => {
         fitReason: "Decent fit.",
       },
     });
-    const { markdown } = await runMatchStages(
-      CONFIG,
-      "payroll software",
-      null,
-      () => {},
-    );
+    const { markdown } = await runMatchStages(CONFIG, request(), () => {});
     expect(markdown).toContain("Acme Corp");
     expect(markdown).toContain("60");
   });
 
   it("renders a no-candidates report instead of throwing when nothing resolves", async () => {
     stubNetwork({ suggestJson: { candidates: [] } });
-    const { markdown } = await runMatchStages(
-      CONFIG,
-      "payroll software",
-      null,
-      () => {},
+    const events: { type: string; phase?: string; detail?: string }[] = [];
+    const { markdown } = await runMatchStages(CONFIG, request(), (event) =>
+      events.push(event),
     );
     expect(markdown.length).toBeGreaterThan(0);
     expect(markdown).not.toContain("undefined");
+    expect(events.at(-1)).toEqual({
+      type: "phase",
+      phase: "done",
+      detail: RUNTIME_LABEL_DEFAULTS.noCandidates,
+    });
   });
 
   it("uses the first candidate's translated labels for the report and cards", async () => {
@@ -839,16 +810,17 @@ describe("match stage composition", () => {
     });
     const { markdown, cardLabels } = await runMatchStages(
       CONFIG,
-      "payroll software",
-      ["https://acme.example.com", "https://globex.example.com"],
+      request({
+        candidates: ["https://acme.example.com", "https://globex.example.com"],
+        requesterMessage: "quelles entreprises devrions-nous cibler ?",
+        responseLanguage: "French",
+        runtimeLabels: {
+          ...RUNTIME_LABEL_DEFAULTS,
+          foundedLabel: "Fondée",
+          fitLabel: "Adéquation",
+        },
+      }),
       () => {},
-      "quelles entreprises devrions-nous cibler ?",
-      "French",
-      {
-        ...RUNTIME_LABEL_DEFAULTS,
-        foundedLabel: "Fondée",
-        fitLabel: "Adéquation",
-      },
     );
     expect(cardLabels.founded).toBe("Fondée");
     expect(cardLabels.fit).toBe("Adéquation");
@@ -865,16 +837,17 @@ describe("match stage composition", () => {
     vi.mocked(fetchWithVariants).mockRejectedValueOnce(new Error("unreachable"));
     const { cardLabels } = await runMatchStages(
       CONFIG,
-      "payroll software",
-      ["https://bad.example.com", "https://good.example.com"],
+      request({
+        candidates: ["https://bad.example.com", "https://good.example.com"],
+        requesterMessage: "quelles entreprises devrions-nous cibler ?",
+        responseLanguage: "French",
+        runtimeLabels: {
+          ...RUNTIME_LABEL_DEFAULTS,
+          foundedLabel: "Fondée",
+          fitLabel: "Adéquation",
+        },
+      }),
       () => {},
-      "quelles entreprises devrions-nous cibler ?",
-      "French",
-      {
-        ...RUNTIME_LABEL_DEFAULTS,
-        foundedLabel: "Fondée",
-        fitLabel: "Adéquation",
-      },
     );
     expect(cardLabels.founded).toBe("Fondée");
     expect(cardLabels.fit).toBe("Adéquation");
@@ -893,83 +866,72 @@ describe("match stage composition", () => {
     });
     const { markdown, cardLabels } = await runMatchStages(
       CONFIG,
-      "منصة تحليلات للمبيعات",
-      null,
+      request({
+        sellingContext: "منصة تحليلات للمبيعات",
+        requesterMessage: "ما الشركات التي يجب أن نستهدفها؟",
+        responseLanguage: "Arabic",
+        runtimeLabels: {
+          ...RUNTIME_LABEL_DEFAULTS,
+          auditRequestTemplate: "حلل {url} كعميل محتمل",
+        },
+      }),
       () => {},
-      "ما الشركات التي يجب أن نستهدفها؟",
-      "Arabic",
-      {
-        ...RUNTIME_LABEL_DEFAULTS,
-        auditRequestTemplate: "حلل {url} كعميل محتمل",
-      },
     );
     expect(markdown).toContain("تعذر تقييم أي شركة مرشحة.");
-    expect(cardLabels.auditRequestTemplate).toBe(
-      "حلل {url} كعميل محتمل",
-    );
+    expect(cardLabels.auditRequestTemplate).toBe("حلل {url} كعميل محتمل");
   });
 
   it("uses localized empty output when named buy candidates cannot be scored", () => {
-    const labels = {
-      ...RUNTIME_LABEL_DEFAULTS,
-      reportTemplate: "{skill}报告",
-      skillMatch: "购买地点",
-      noBuyCandidates: "无法评估任何卖家或零售商。",
-    };
     const result = formatMatchSkillResult(
-      {
-        candidates: [{ url: "https://ikea.example.com", nameHint: "IKEA" }],
-        urls: ["https://ikea.example.com"],
-        labels: MATCH_REPORT_LABELS,
-      },
+      request({
+        sellingContext: "羊毛毯",
+        candidates: ["IKEA"],
+        matchDirection: "buy",
+        runtimeLabels: {
+          ...RUNTIME_LABEL_DEFAULTS,
+          reportTemplate: "{skill}报告",
+          skillMatch: "购买地点",
+          noBuyCandidates: "无法评估任何卖家或零售商。",
+        },
+      }),
       { scored: [], labels: MATCH_REPORT_LABELS },
-      "羊毛毯",
-      ["IKEA"],
-      () => {},
-      labels,
-      "buy",
-      null,
     );
     expect(result.title).toBe("购买地点报告: 羊毛毯");
     expect(result.markdown).toContain("无法评估任何卖家或零售商。");
+    expect(result.matches).toEqual([]);
   });
 
   it("uses the same ranked report and card structure for buy mode", async () => {
+    const translated = {
+      titleTemplate: "购买地点：{product}",
+      titleWithLocationTemplate: "在 {location} 购买：{product}",
+      fitLabel: "购买匹配度",
+      auditHint: "点击查看完整卖家分析 →",
+      auditRequestTemplate: "将 {url} 作为供应商进行分析",
+    };
     stubNetwork({
       suggestJson: {
         candidates: [{ name: "IKEA", url: "https://ikea.example.com" }],
-        labels: {
-          titleTemplate: "购买地点：{product}",
-          titleWithLocationTemplate: "在 {location} 购买：{product}",
-          fitLabel: "购买匹配度",
-          auditHint: "点击查看完整卖家分析 →",
-          auditRequestTemplate: "将 {url} 作为供应商进行分析",
-        },
+        labels: translated,
       },
       scoreJson: {
         companyName: "IKEA",
         score: 84,
         description: "IKEA 销售家居用品。",
         fitReason: "其目录中提供相关产品。",
-        labels: {
-          titleTemplate: "购买地点：{product}",
-          titleWithLocationTemplate: "在 {location} 购买：{product}",
-          fitLabel: "购买匹配度",
-          auditHint: "点击查看完整卖家分析 →",
-          auditRequestTemplate: "将 {url} 作为供应商进行分析",
-        },
+        labels: translated,
       },
     });
     const result = await runMatchStages(
       CONFIG,
-      "羊毛毯",
-      null,
+      request({
+        sellingContext: "羊毛毯",
+        requesterMessage: "哪里可以买到羊毛毯？",
+        responseLanguage: "Chinese",
+        matchDirection: "buy",
+        matchLocation: "多伦多",
+      }),
       () => {},
-      "哪里可以买到羊毛毯？",
-      "Chinese",
-      RUNTIME_LABEL_DEFAULTS,
-      "buy",
-      "多伦多",
     );
     expect(result.title).toBe("在 多伦多 购买：羊毛毯");
     expect(result.matches).toHaveLength(1);

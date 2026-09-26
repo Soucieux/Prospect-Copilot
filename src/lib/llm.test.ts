@@ -5,6 +5,7 @@ import {
   LlmStructuredOutputError,
   LlmTimeoutError,
   chatCompletion,
+  isRetryableStructuredLlmError,
   streamChatCompletion,
   structuredChatCompletion,
 } from "./llm";
@@ -181,6 +182,10 @@ describe("streamChatCompletion", () => {
 });
 
 describe("provider failure classification", () => {
+  it("classifies a provider timeout as retryable", () => {
+    expect(isRetryableStructuredLlmError(new LlmTimeoutError())).toBe(true);
+  });
+
   it("keeps the provider's own status on a rejected request", async () => {
     vi.stubGlobal(
       "fetch",

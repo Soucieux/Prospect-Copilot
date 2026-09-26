@@ -1,13 +1,17 @@
+import { z } from "zod";
 import type { ChatMessage } from "@/lib/chat-types";
 
 /** Server and client limits for conversation context sent to one LLM request. */
 export const MAX_CHAT_HISTORY_ITEMS = 50;
 export const MAX_CHAT_HISTORY_CONTENT_CHARS = 8_000;
 
-export interface ChatHistoryItem {
-  role: "user" | "assistant";
-  content: string;
-}
+/** One prior turn as the wire carries it: the single definition of its shape. */
+export const CHAT_HISTORY_ITEM_SCHEMA = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string().max(MAX_CHAT_HISTORY_CONTENT_CHARS),
+});
+
+export type ChatHistoryItem = z.infer<typeof CHAT_HISTORY_ITEM_SCHEMA>;
 
 /**
  * Build bounded wire history without modifying the messages persisted locally.

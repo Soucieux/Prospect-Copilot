@@ -13,7 +13,7 @@ import {
 } from "@/lib/llm-endpoint-policy";
 import type { ChatEvent } from "@/lib/agent/schemas";
 import {
-  MAX_CHAT_HISTORY_CONTENT_CHARS,
+  CHAT_HISTORY_ITEM_SCHEMA,
   MAX_CHAT_HISTORY_ITEMS,
 } from "@/lib/chat-history";
 import { RUNTIME_LABEL_DEFAULTS } from "@/lib/localization";
@@ -26,12 +26,7 @@ export const maxDuration = 300;
 export const CHAT_REQUEST_SCHEMA = z.object({
   message: z.string().min(1).max(8_000),
   history: z
-    .array(
-      z.object({
-        role: z.enum(["user", "assistant"]),
-        content: z.string().max(MAX_CHAT_HISTORY_CONTENT_CHARS),
-      }),
-    )
+    .array(CHAT_HISTORY_ITEM_SCHEMA)
     .max(MAX_CHAT_HISTORY_ITEMS)
     .default([]),
 });
@@ -110,6 +105,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      /** Write one SSE frame unless the client has already gone away. */
       const send = (event: ChatEvent): void => {
         if (request.signal.aborted) return;
         try {

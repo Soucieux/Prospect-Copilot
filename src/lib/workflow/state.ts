@@ -1,20 +1,13 @@
 import { Annotation } from "@langchain/langgraph";
 import type { ResolvedRouterResult } from "@/lib/agent/router";
+import type { ChatHistoryItem } from "@/lib/chat-history";
 import type { ReportState } from "@/lib/chat-types";
+import { DEFAULT_RESPONSE_LANGUAGE } from "@/lib/constants";
 import {
   RUNTIME_LABEL_DEFAULTS,
   type RuntimeLabels,
 } from "@/lib/localization";
-import {
-  DEFAULT_RESPONSE_LANGUAGE,
-  WORKFLOW_STATUS,
-} from "@/lib/workflow/constants";
-
-/** One bounded prior conversation turn supplied to the workflow. */
-export interface WorkflowHistoryItem {
-  role: "user" | "assistant";
-  content: string;
-}
+import { WORKFLOW_STATUS } from "@/lib/workflow/constants";
 
 /** Display-safe failure metadata retained in graph state. */
 export interface WorkflowFailure {
@@ -27,7 +20,7 @@ export interface WorkflowFailure {
 export const WorkflowStateAnnotation = Annotation.Root({
   requestId: Annotation<string>,
   message: Annotation<string>,
-  history: Annotation<WorkflowHistoryItem[]>({
+  history: Annotation<ChatHistoryItem[]>({
     reducer: (_current, update) => update,
     default: () => [],
   }),

@@ -6,6 +6,7 @@
 
 import type { z } from "zod";
 import type {
+  AgentStatus,
   MATCH_CANDIDATE_SCHEMA,
   REPORT_STATE_SCHEMA,
 } from "@/lib/agent/schemas";
@@ -14,13 +15,16 @@ export interface ProgressEvent {
   kind: "phase" | "agent";
   label: string;
   detail: string;
-  status?: "running" | "done" | "failed";
+  status?: AgentStatus;
   score?: number;
 }
 
 export type MatchCandidate = z.infer<typeof MATCH_CANDIDATE_SCHEMA>;
 
 export type ReportState = z.infer<typeof REPORT_STATE_SCHEMA>;
+
+/** Localized chrome for the match candidate cards, as the report carries it. */
+export type MatchCardLabels = NonNullable<ReportState["matchLabels"]>;
 
 export interface ChatMessage {
   role: "user" | "assistant";

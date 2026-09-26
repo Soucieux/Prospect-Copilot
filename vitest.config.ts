@@ -40,47 +40,47 @@ export default defineConfig({
       // already proven the element exists - yet still count toward the
       // denominator, so they cap the branch ratio.
       thresholds: {
-        statements: 82,
-        branches: 82,
-        functions: 78,
-        lines: 82,
+        statements: 85,
+        branches: 84,
+        functions: 80,
+        lines: 85,
         "src/lib/*.ts": {
-          statements: 94,
-          branches: 80,
+          statements: 95,
+          branches: 85,
           functions: 98,
-          lines: 95,
+          lines: 97,
         },
         "src/lib/extract/**": {
-          statements: 90,
-          branches: 85,
+          statements: 92,
+          branches: 87,
           functions: 95,
-          lines: 90,
+          lines: 94,
         },
         "src/lib/scoring/**": {
-          statements: 95,
-          branches: 95,
-          functions: 95,
-          lines: 95,
+          statements: 100,
+          branches: 97,
+          functions: 100,
+          lines: 100,
         },
         "src/lib/skills/**": {
-          statements: 95,
-          branches: 88,
-          functions: 95,
-          lines: 95,
+          statements: 97,
+          branches: 95,
+          functions: 100,
+          lines: 98,
         },
         // Statements stay unpinned here on purpose: the subgraph node bodies
         // are calls into the graph runtime and the model. Vitest 4 also counts
-        // the branches inside those bodies, which is why this floor sits at 52;
+        // the branches inside those bodies, which is why this floor sits at 66;
         // every branch in code the unit tests run is taken, and that is what a
         // routing bug would break.
         "src/lib/workflow/**": {
-          branches: 52,
+          branches: 66,
         },
         "src/app/api/**": {
-          statements: 95,
-          branches: 85,
+          statements: 97,
+          branches: 94,
           functions: 100,
-          lines: 95,
+          lines: 97,
         },
       },
     },

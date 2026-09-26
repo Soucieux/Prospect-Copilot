@@ -5,21 +5,21 @@
 
 import {
   LlmError,
+  STRUCTURED_LLM_RETRY_OPTIONS,
   chatCompletion,
   structuredChatCompletion,
   type LlmConfig,
 } from "@/lib/llm";
 import { ROUTER_RESULT_SCHEMA, type RouterResult } from "@/lib/agent/schemas";
+import type { ChatHistoryItem } from "@/lib/chat-history";
+import { isLikelyCompanyUrl } from "@/lib/extract/company-url";
 import { normalizeUrl } from "@/lib/extract/fetch-page";
 import {
   RUNTIME_LABEL_DEFAULTS,
   mergeRuntimeLabels,
   type RuntimeLabels,
 } from "@/lib/localization";
-import {
-  STRUCTURED_LLM_RETRY_OPTIONS,
-  retryOperation,
-} from "@/lib/retry";
+import { retryOperation } from "@/lib/retry";
 
 const ROUTER_SYSTEM_PROMPT = `You classify user messages for a sales intelligence assistant.
 Available skills:
@@ -118,7 +118,7 @@ export class RouterOutputError extends Error {
 export async function routeMessageForWorkflow(
   config: LlmConfig,
   message: string,
-  history: { role: "user" | "assistant"; content: string }[] = [],
+  history: ChatHistoryItem[] = [],
   signal?: AbortSignal,
 ): Promise<ResolvedRouterResult> {
   try {
@@ -140,28 +140,6 @@ export async function routeMessageForWorkflow(
     signal?.throwIfAborted();
     if (caught instanceof LlmError) throw caught;
     throw new RouterOutputError();
-  }
-}
-
-/** Hostnames that are never a company's own site (social/reference platforms). */
-const NON_COMPANY_HOST_PATTERN =
-  /(linkedin|facebook|twitter|x\.com|wikipedia|crunchbase)\./i;
-
-/**
- * Whether a URL looks like a company's own site rather than a social,
- * reference, or aggregator platform.
- * @param url the candidate URL
- * @returns false for unparseable URLs, single-label hosts, or known
- *   non-company hosts
- */
-export function isLikelyCompanyUrl(url: string): boolean {
-  try {
-    const hostname = new URL(url).hostname;
-    return (
-      hostname.includes(".") && !NON_COMPANY_HOST_PATTERN.test(hostname)
-    );
-  } catch {
-    return false;
   }
 }
 

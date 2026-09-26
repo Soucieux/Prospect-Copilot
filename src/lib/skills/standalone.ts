@@ -4,21 +4,19 @@
  * a URL is available, then streams a single markdown deliverable.
  */
 
-import { WORKFLOW_PHASE } from "@/lib/workflow/constants";
-import {
-  streamChatCompletion,
-  type LlmConfig,
-} from "@/lib/llm";
-import type { EmitCallback } from "@/lib/agent/schemas";
-import { analyzeProspect } from "@/lib/extract/analyze-prospect";
+import { CHAT_PHASE, type EmitCallback } from "@/lib/agent/schemas";
+import { streamChatCompletion, type LlmConfig } from "@/lib/llm";
+import { analyzeProspect, loadPage } from "@/lib/extract/analyze-prospect";
 import { findContacts } from "@/lib/extract/contact-finder";
 import { fetchWithVariants } from "@/lib/extract/fetch-page";
 import { htmlToText } from "@/lib/extract/html-to-text";
 import { scoreBant } from "@/lib/scoring/lead-scorer";
 import { buildProspectSignals } from "@/lib/scoring/prospect-signals";
 import {
+  DEFAULT_RESPONSE_LANGUAGE,
   NOT_PUBLICLY_AVAILABLE,
   RESPOND_IN_USER_LANGUAGE,
+  SELLING_CONTEXT_MARKER,
   UNTRUSTED_WEB_CONTENT_RULES,
 } from "@/lib/constants";
 import {
@@ -42,6 +40,11 @@ export interface StandaloneSkill {
 const MAX_CONTACTS_IN_GROUNDING = 10;
 const GROUNDING_HOMEPAGE_CHAR_BUDGET = 6_000;
 
+/**
+ * Evidence discipline for a streamed markdown document. Deliberately not the
+ * shared scoring rules: these skills write prose, so the 0-100 score line
+ * those rules carry would be an instruction the model cannot follow.
+ */
 const EVIDENCE_RULES = `
 Rules:
 - NEVER fabricate names, numbers, or claims. Missing data is "${NOT_PUBLICLY_AVAILABLE}" and lowers any assessment.
@@ -58,7 +61,7 @@ const STANDALONE_SKILLS: StandaloneSkill[] = [
 Produce COMPANY-RESEARCH.md: company overview, business model, product and
 technology, market position, growth signals, and a Company Fit assessment
 across size/industry/growth/tech/budget (0-20 each) with a short justification
-per dimension. When a WHAT WE SELL line is given in the input, ground the
+per dimension. When a ${SELLING_CONTEXT_MARKER} line is given in the input, ground the
 Company Fit assessment and Next Actions in that specific offering; when it is
 absent, assess only generic B2B fit and do not assume a product category.
 Finish with a "Next actions" list of 3 concrete steps.
@@ -98,6 +101,13 @@ ${EVIDENCE_RULES}`,
 ];
 
 /**
+ * The standalone skill names, derived from the skill table so the router's
+ * branch selection can never list a skill this file does not implement.
+ */
+export const STANDALONE_SKILL_NAMES: readonly StandaloneSkillName[] =
+  STANDALONE_SKILLS.map((skill) => skill.name);
+
+/**
  * Run a standalone skill: optional discovery, then stream the deliverable.
  * @param config LLM credentials
  * @param skillName which standalone skill to run
@@ -121,7 +131,7 @@ export async function runStandaloneSkill(
   emit: EmitCallback,
   sellingContext: string | null = null,
   requesterMessage: string = "",
-  responseLanguage: string = "English",
+  responseLanguage: string = DEFAULT_RESPONSE_LANGUAGE,
   runtimeLabels: RuntimeLabels = RUNTIME_LABEL_DEFAULTS,
   signal?: AbortSignal,
 ): Promise<{ markdown: string; title: string }> {
@@ -136,12 +146,13 @@ verify as "${NOT_PUBLICLY_AVAILABLE}" rather than guessing.`;
   if (skill.needsDiscovery && url) {
     emit({
       type: "phase",
-      phase: WORKFLOW_PHASE.discovery,
+      phase: CHAT_PHASE.discovery,
       detail: formatRuntimeLabel(runtimeLabels.fetchingTemplate, { target: url }),
     });
     const page = await fetchWithVariants(url, signal);
-    const extraction = analyzeProspect(page.html, page.url);
-    const contacts = findContacts(page.html, extraction.companyName);
+    const $ = loadPage(page.html);
+    const extraction = analyzeProspect(page.html, page.url, $);
+    const contacts = findContacts(page.html, extraction.companyName, $);
     const signals = buildProspectSignals(extraction, contacts);
     const bant = skill.name === "qualify" ? scoreBant(signals) : null;
     grounding = `Discovery briefing for ${page.url}:
@@ -159,7 +170,7 @@ ${contacts
       `  - ${contact.name}, ${contact.title ?? "title unknown"} (${contact.seniority}, ${contact.buyingRole})${contact.linkedin ? ` - ${contact.linkedin}` : ""}`,
   )
   .join("\n")}
-- Homepage text: ${htmlToText(page.html).slice(0, GROUNDING_HOMEPAGE_CHAR_BUDGET)}
+- Homepage text: ${htmlToText(page.html, $).slice(0, GROUNDING_HOMEPAGE_CHAR_BUDGET)}
 ${
   bant
     ? `\nDeterministic BANT pre-score (use as a floor, adjust only with cited evidence):\n${bant.dimensions
@@ -172,14 +183,16 @@ ${
 
   emit({
     type: "phase",
-    phase: WORKFLOW_PHASE.analysis,
+    phase: CHAT_PHASE.analysis,
     detail: formatRuntimeLabel(runtimeLabels.runningSkillTemplate, {
       skill: localizedSkillName(runtimeLabels, skill.name),
     }),
   });
 
   const languageHint = `${responseLanguageContext(responseLanguage, requesterMessage)}\n\n`;
-  const sellLine = sellingContext ? `WHAT WE SELL: ${sellingContext}\n\n` : "";
+  const sellLine = sellingContext
+    ? `${SELLING_CONTEXT_MARKER}: ${sellingContext}\n\n`
+    : "";
   const userContent = `${languageHint}${sellLine}${grounding}`;
 
   let markdown = "";
@@ -203,7 +216,7 @@ ${
 
   emit({
     type: "phase",
-    phase: WORKFLOW_PHASE.done,
+    phase: CHAT_PHASE.done,
     detail: formatRuntimeLabel(runtimeLabels.skillCompleteTemplate, {
       skill: localizedSkillName(runtimeLabels, skill.name),
     }),

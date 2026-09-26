@@ -7,15 +7,19 @@
  * and its formatted label from drifting apart at each call site.
  */
 
-import type { EmitCallback } from "@/lib/agent/schemas";
+import type { AgentStatus, EmitCallback } from "@/lib/agent/schemas";
 import { formatRuntimeLabel, type RuntimeLabels } from "@/lib/localization";
 
-/** Template to use for each stage of one worker's lifecycle. */
-const STATUS_TEMPLATE = {
+/**
+ * Template to use for each stage of one worker's lifecycle. Keyed by the wire
+ * schema's own status list, so adding a status there without a template here,
+ * or the reverse, fails the type check.
+ */
+const STATUS_TEMPLATE: Record<AgentStatus, keyof RuntimeLabels> = {
   running: "agentRunningTemplate",
   done: "agentDoneTemplate",
   failed: "agentFailedTemplate",
-} as const;
+};
 
 /**
  * Emit one worker's progress event with its localized detail line.
@@ -29,7 +33,7 @@ export function emitAgentProgress(
   emit: EmitCallback,
   labels: RuntimeLabels,
   agent: string,
-  status: keyof typeof STATUS_TEMPLATE,
+  status: AgentStatus,
   score?: number,
 ): void {
   emit({

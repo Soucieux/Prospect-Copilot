@@ -4,18 +4,24 @@
  * signals here so the two can never drift apart.
  */
 
-import type { SubagentResult } from "@/lib/agent/schemas";
 import type { ContactCandidate } from "@/lib/extract/contact-finder";
-import { parseEmployeeCount } from "@/lib/extract/analyze-prospect";
+import type { ProspectExtraction } from "@/lib/extract/analyze-prospect";
 import type { ProspectSignals } from "@/lib/scoring/lead-scorer";
 
 /** The extraction fields deterministic scoring reads, however they were built. */
-export interface SignalSource {
-  techStack: string[];
-  hasPricingPage: boolean;
-  enterpriseTierListed: boolean;
-  jsonLdOrg: { numberOfEmployees?: number | string } | null;
-}
+export type SignalSource = Pick<
+  ProspectExtraction,
+  "techStack" | "hasPricingPage" | "enterpriseTierListed" | "employeeCount"
+>;
+
+/** The signals no page extractor can read, evidenced by an analysis worker. */
+export type DiscoverySignals = Pick<
+  ProspectSignals,
+  | "painPointsDetected"
+  | "activeJobPostings"
+  | "recentFundingWithin12Months"
+  | "fundingTotalUsd"
+>;
 
 /**
  * Derive deterministic BANT and MEDDIC signals from discovery evidence.
@@ -30,10 +36,10 @@ export interface SignalSource {
 export function buildProspectSignals(
   source: SignalSource,
   contacts: ContactCandidate[],
-  discoverySignals?: SubagentResult["discoverySignals"],
+  discoverySignals?: DiscoverySignals,
 ): ProspectSignals {
   return {
-    employeeCount: parseEmployeeCount(source.jsonLdOrg?.numberOfEmployees),
+    employeeCount: source.employeeCount,
     hasPricingPage: source.hasPricingPage,
     enterpriseTierListed: source.enterpriseTierListed,
     decisionMakersFound: contacts.length,

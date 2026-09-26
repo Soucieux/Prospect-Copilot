@@ -241,9 +241,6 @@ project-specific role, read from the current source and dependency manifest.
 - Conversations and reports: IndexedDB in the browser. No server-side database exists; the server is
   stateless.
 
-- The LLM API key lives only in the browser's `localStorage` and is sent per request; the Next.js server is stateless and never persists it.
-- Conversations and generated reports are stored client-side in IndexedDB — no server-side database exists.
-
 - **Evidence:** Every finding carries evidence and a confidence tag
   (High/Medium/Low/Inferred). Missing data is labeled "Not publicly available" and lowers the score.
 - **URL protection:** Prospect URLs are resolved before fetching; loopback/private/link-local addresses
@@ -274,6 +271,7 @@ One record per change; complete details and evidence are below. Older work dates
 
 | Record | Date | Highlights | Details |
 |---|---|---|---|
+| Maintenance | 2026-09-26 | <ul><li><strong>Reliability:</strong> An error page (404, 500, and the like) is no longer read as company evidence; a page that fails is left out of the briefing.</li><li><strong>Scoring:</strong> Competitive Position stays at the neutral 50 until you say what you sell, decided in code rather than left to the model, and the synthesis reads the same scores the report table shows.</li><li><strong>Structure:</strong> Each fetched page is parsed once and shared by every extractor; one definition names the progress phases, worker states and skill names; scoring is keyed by category so translations cannot drift; the match stages share one request object; the retry helpers no longer depend on the model adapter.</li><li><strong>Social links:</strong> A LinkedIn or social link written with a capitalised scheme is no longer mangled in the report.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](#shared-page-parse-and-error-pages) |
 | Maintenance | 2026-09-26 | <ul><li><strong>Icon:</strong> Redrew the project icon in the macOS icon shape at the standard size; the icon Next.js serves and the project folder's icon come from the same master.</li></ul> | [Full record](#aligned-project-icon) |
 | Maintenance | 2026-09-23 | <ul><li><strong>Tests:</strong> Prospect scoring is now tested when analysis workers fail: any one of them, the one that reports hiring and pain signals, or all five.</li><li><strong>Behavior:</strong> Unchanged; the tests pin what a failed worker already did.</li></ul> | [Full record](#failed-worker-scoring-tests) |
 | Maintenance | 2026-09-23 | <ul><li><strong>Security:</strong> Cleared the five dependency advisories GitHub reported — two critical in Next.js, one high in sharp, and two medium in Vitest.</li><li><strong>Versions:</strong> Next.js 16.3.3, sharp 0.35.4, and Vitest with its coverage provider 4.1.11.</li><li><strong>Coverage:</strong> Vitest 4 counts branches differently, so three coverage floors were re-measured; all 394 unit tests and 57 end-to-end runs pass.</li></ul> | [Full record](#dependency-advisories-cleared) |
@@ -281,23 +279,66 @@ One record per change; complete details and evidence are below. Older work dates
 | Documentation | 2026-09-13 | <ul><li><strong>License:</strong> Added the approved Soucieux proprietary-software notice.</li></ul> | [Full record](#soucieux-proprietary-license) |
 | Documentation | 2026-09-11 | <ul><li><strong>Contributing:</strong> Added a standalone project guide for the canonical workspace and public subtree.</li><li><strong>Links:</strong> Removed README dependencies on parent-only repository files.</li><li><strong>Repository:</strong> Added a feature-first public GitHub description.</li></ul> | [Full record](#standalone-contributor-guide) |
 | Documentation | 2026-09-06 | <ul><li><strong>Structure:</strong> User guide first; one history table.</li><li><strong>Rules:</strong> Scoped contributor guidance under AGENTS.</li></ul> | [Full record](#readme-organization) |
-| Maintenance | 2026-09-06 | <ul><li><strong>Change:</strong> Reorganized long paragraphs and table cells without dropping details.</li></ul> | [Full record](#change-1) |
-| Documentation | 2026-09-06 | <ul><li><strong>Change:</strong> Moved complete project descriptions, register details, and repository-origin history into this README.</li></ul> | [Full record](#change-2) |
-| Maintenance | 2026-09-05 | <ul><li><strong>Change:</strong> Completed a full-sweep exhaustive pass: all 103 project files read start to finish rather than by diff, which reached two defects no earlier pass had.</li></ul> | [Full record](#change-3) |
-| Maintenance | 2026-09-05 | <ul><li><strong>Change:</strong> Turned on strict index checking (noUncheckedIndexedAccess) and resolved the 103 errors it raised, which exposed two defects that reading alone had not.</li></ul> | [Full record](#change-4) |
-| Maintenance | 2026-09-04 | <ul><li><strong>Change:</strong> Made the end-to-end suite actually run and turned coverage from a number into a gate.</li></ul> | [Full record](#change-5) |
-| Maintenance | 2026-09-02 | <ul><li><strong>Change:</strong> Declared Prospect Copilot's dated-history mode and linked it to the centralized repository policy.</li></ul> | [Full record](#change-6) |
-| Maintenance | 2026-09-02 | <ul><li><strong>Change:</strong> Completed the project's first repository-wide exhaustive pass.</li></ul> | [Full record](#change-7) |
-| Maintenance | 2026-08-31 | <ul><li><strong>Change:</strong> Reconciled all 49 retained project commits with the repository summary.</li></ul> | [Full record](#change-8) |
-| Maintenance | 2026-08-31 | <ul><li><strong>Change:</strong> Added and categorized the source-backed architecture inventory.</li></ul> | [Full record](#change-9) |
-| Maintenance | 2026-08-29 | <ul><li><strong>Change:</strong> Documented evidenced scoring and team-page contacts, corrected the composite-score/BANT/MEDDIC distinction, and added the source-layout table.</li></ul> | [Full record](#change-10) |
-| Maintenance | 2026-08-28 | <ul><li><strong>Change:</strong> Shared label merging.</li></ul> | [Full record](#change-11) |
-| Maintenance | 2026-08-23 | <ul><li><strong>Change:</strong> Upgraded the runtime/dependencies and integrated LangChain model adapters and typed LangGraph request/subgraphs.</li></ul> | [Full record](#change-12) |
-| Maintenance | 2026-08-22 | <ul><li><strong>Change:</strong> Introduced match schemas, routing, bounded candidate scoring, ranked reports, and selectable company cards.</li></ul> | [Full record](#change-13) |
-| Maintenance | 2026-08-21 | <ul><li><strong>Change:</strong> Introduced the standalone BYOK prospect-audit application and four research skills.</li></ul> | [Full record](#change-14) |
+| Maintenance | 2026-09-06 | <ul><li><strong>Change:</strong> Reorganized long paragraphs and table cells without dropping details.</li></ul> | [Full record](#readability-maintenance) |
+| Documentation | 2026-09-06 | <ul><li><strong>Change:</strong> Moved complete project descriptions, register details, and repository-origin history into this README.</li></ul> | [Full record](#readme-consolidation) |
+| Maintenance | 2026-09-05 | <ul><li><strong>Change:</strong> Corrected the cross-page contact deduplication key, removed two duplicated test helpers, completed stranded documentation blocks, corrected three documents, and restored per-file formatting conventions.</li></ul> | [Full record](#contact-deduplication-key) |
+| Maintenance | 2026-09-05 | <ul><li><strong>Change:</strong> Turned on strict index checking (noUncheckedIndexedAccess) and resolved the 103 errors it raised, which exposed two defects that reading alone had not.</li></ul> | [Full record](#strict-index-checking) |
+| Maintenance | 2026-09-04 | <ul><li><strong>Change:</strong> Made the end-to-end suite actually run and turned coverage from a number into a gate.</li></ul> | [Full record](#end-to-end-suite-and-coverage-gate) |
+| Maintenance | 2026-09-02 | <ul><li><strong>Change:</strong> Declared Prospect Copilot's dated-history mode and linked it to the centralized repository policy.</li></ul> | [Full record](#dated-history-declaration) |
+| Maintenance | 2026-09-02 | <ul><li><strong>Change:</strong> Restricted page fetching to web ports, validated the report at the wire boundary, replaced unchecked type assertions, corrected MEDDIC renewal timing, added request rate limiting and a separate API-key record, shared duplicated helpers, and added coverage measurement with an end-to-end suite.</li></ul> | [Full record](#port-restriction-and-shared-helpers) |
+| Maintenance | 2026-08-31 | <ul><li><strong>Change:</strong> Reconciled all 49 retained project commits with the repository summary.</li></ul> | [Full record](#commit-history-reconciliation) |
+| Maintenance | 2026-08-31 | <ul><li><strong>Change:</strong> Added and categorized the source-backed architecture inventory.</li></ul> | [Full record](#architecture-inventory) |
+| Maintenance | 2026-08-29 | <ul><li><strong>Change:</strong> Documented evidenced scoring and team-page contacts, corrected the composite-score/BANT/MEDDIC distinction, and added the source-layout table.</li></ul> | [Full record](#scoring-documentation-and-layout-table) |
+| Maintenance | 2026-08-28 | <ul><li><strong>Change:</strong> Shared label merging.</li></ul> | [Full record](#team-page-contact-extraction) |
+| Maintenance | 2026-08-23 | <ul><li><strong>Change:</strong> Upgraded the runtime/dependencies and integrated LangChain model adapters and typed LangGraph request/subgraphs.</li></ul> | [Full record](#langgraph-workflow-migration) |
+| Maintenance | 2026-08-22 | <ul><li><strong>Change:</strong> Introduced match schemas, routing, bounded candidate scoring, ranked reports, and selectable company cards.</li></ul> | [Full record](#product-match-skill) |
+| Maintenance | 2026-08-21 | <ul><li><strong>Change:</strong> Introduced the standalone BYOK prospect-audit application and four research skills.</li></ul> | [Full record](#initial-application) |
 
 <details>
 <summary>Full records for this table</summary>
+
+<a id="shared-page-parse-and-error-pages"></a>
+
+### Shared page parsing and error-page handling — 2026-09-26
+
+- **Error pages:** the secure fetcher now treats any status of 400 or above as a failure. Before,
+  the text of a 404 or 500 page could reach the analysis workers as company evidence; now a failed
+  homepage stops the audit through the existing error path, and a failed subpage is simply absent
+  from the briefing. Temporary statuses (408, 429 and the 5xx family) are still retried, honouring
+  `Retry-After`.
+- **Neutral Competitive Position:** when no product has been mentioned, the composite scorer sets
+  Competitive Position to the neutral 50 itself instead of relying on the worker to do so, and the
+  synthesis writer is given the same effective scores the breakdown table shows.
+- **One parse per page:** the homepage and each subpage are parsed once and handed to the
+  extractor, the contact finder, and the text converter in that order, instead of being parsed
+  three times. The pricing-page detector and subpage discovery share one word list, so the
+  "has pricing page" flag and the fetched pricing page can no longer disagree.
+- **Consistent labels:** scores are keyed by category and their display names come from the same
+  translation table the progress log uses; the match cards' English fallbacks and the audit request
+  a card sends come from that table too, and a company URL containing `$&` is no longer mangled in
+  that request.
+- **Shared definitions:** the progress phases, worker states, skill names, and chat-history turn
+  shape each have one definition in the schemas, and the worker-progress templates are keyed by
+  that status list; the product-context prompt markers and the shared evidence rules live in the
+  constants module; the match stages consume one request object instead of nine positional
+  arguments; the company-URL rules have their own module; the retry helpers no longer import the
+  model adapter, which owns its own retry policy; the router node's retry budget and failure
+  classification are read from that one policy; and the adapter no longer carries a second
+  request timeout beside the app's own deadline.
+- **Social links:** a LinkedIn or social href written with a capitalised scheme (`HTTPS://…`) was
+  turned into `https://HTTPS://…` in the report; the scheme is now recognised in any case.
+- **Removed:** the unused workflow statuses, the per-worker weight copies (the prompts now quote
+  the scorer's weights), the separate score-label module, and JSON-mode plumbing no call used.
+- **Tests:** new tests cover the backoff and abort helpers, the shared-document contract between
+  the extractors, the company-URL rules, error-status handling, the neutral Competitive Position
+  rule, the match request object, and capitalised social-link schemes. 448 unit tests, the
+  coverage gate, the type check, the production build, and the 57 end-to-end runs pass.
+- **Coverage floors:** raised to what the suite now measures, as the ratchet rule requires: 85%
+  of statements and 84% of branches overall, 95% of statements in `src/lib`, 92% in `extract`,
+  100% in `scoring`, 97% in `skills` and the chat endpoint, and 66% of branches in `workflow`.
+- **Status:** delivered uncommitted with local checks. Not deployed.
+
+[Back to change history](#change-history)
 
 <a id="aligned-project-icon"></a>
 
@@ -385,7 +426,7 @@ One record per change; complete details and evidence are below. Older work dates
 
 <a id="soucieux-proprietary-license"></a>
 
-### Documentation
+### Proprietary license notice — 2026-09-13
 
 - **Recorded date:** 2026-09-13.
 - Added the approved Soucieux proprietary-software notice, reserving rights in original project
@@ -424,7 +465,6 @@ One record per change; complete details and evidence are below. Older work dates
 
 [Back to change history](#change-history)
 
-<a id="change-1"></a>
 <a id="readability-maintenance"></a>
 
 ### Reorganized long paragraphs and table cells without dropping details
@@ -441,7 +481,7 @@ Local documentation changes; initially delivered uncommitted and recorded in thi
 
 [Back to change history](#change-history)
 
-<a id="change-2"></a>
+<a id="readme-consolidation"></a>
 
 ### Moved complete project descriptions, register details, and repository-origin history into this README
 
@@ -457,16 +497,16 @@ Local documentation update; initially delivered uncommitted and recorded in `07f
 
 [Back to change history](#change-history)
 
-<a id="change-3"></a>
+<a id="contact-deduplication-key"></a>
 
-### Completed a full-sweep exhaustive pass: all 103 project files read start to finish rather than by diff, which reached two defects no earlier pass had
+### Contact deduplication key and documentation corrections
 
 - **Recorded date:** 2026-09-05.
 
 - Cross-page contact deduplication used a weaker key than the extractor that produces the contacts - `findContacts` collapses whitespace before comparing names, while the orchestrator compared `name.toLowerCase()` alone, so one person listed as "Jane  Doe" on the team page and "Jane Doe" on the about page reached the decision-maker table twice;
 
 - both levels now share the one exported key.
-- The 2026-09-05 row below also misstated every branch figure it quoted: re-measuring in throwaway worktrees at the pre-flag commit and at HEAD gave 931 of 1,020 rising to 934 of 1,028, not 929 of 1,017 to 933 of 1,027, and those numbers are corrected in place because a later pass would otherwise inherit them.
+- The strict-index-checking record below had misstated every branch figure it quoted: re-measured at the commit before the flag and at the commit that added it, covered branches rose from 931 of 1,020 to 934 of 1,028, not from 929 of 1,017 to 933 of 1,027, and those numbers are corrected in place.
 
 - Two duplications were removed - the end-to-end harness re-declared three localStorage keys `constants.ts` already exports, so a rename would have desynced the suite from the app silently, and the router tests carried a second `resolveCompanyUrl` block duplicating two cases a later block already covered, together with the stub helper that existed only to serve it.
 
@@ -476,8 +516,7 @@ Local documentation update; initially delivered uncommitted and recorded in `07f
 
 - Formatting returned to each file's own convention where it had drifted - a 114-line JSX subtree indented flat with its parent, the one unwrapped `emit` in a file where every sibling wraps, a condition split across three lines that fits in 53 characters, and two misindented argument blocks.
 
-- Three tests closed the rate limiter's two unreached `x-real-ip` branches.
-- Two findings were withdrawn as false positives with the line cited, both places where a long template literal follows the file's own convention rather than breaks it. 394 unit tests, 57 end-to-end runs, typecheck, and the production build pass.
+- Three tests closed the rate limiter's two unreached `x-real-ip` branches. 394 unit tests, 57 end-to-end runs, typecheck, and the production build pass.
 
 - **Status:** Verified by 394 unit tests behind per-directory coverage floors and 19 end-to-end
   specs run across Chromium, Firefox, and WebKit against the production build; typecheck and build
@@ -489,7 +528,7 @@ Local documentation update; initially delivered uncommitted and recorded in `07f
 
 [Back to change history](#change-history)
 
-<a id="change-4"></a>
+<a id="strict-index-checking"></a>
 
 ### Turned on strict index checking (noUncheckedIndexedAccess) and resolved the 103 errors it raised, which exposed two defects that reading alone had not
 
@@ -516,7 +555,7 @@ Local documentation update; initially delivered uncommitted and recorded in `07f
 
 [Back to change history](#change-history)
 
-<a id="change-5"></a>
+<a id="end-to-end-suite-and-coverage-gate"></a>
 
 ### Made the end-to-end suite actually run and turned coverage from a number into a gate
 
@@ -571,23 +610,13 @@ The endpoint went from 36% to 97% of statements and 29% to 88% of branches, the 
 
 Branch coverage rose from 90% to 91% overall with every targeted file above 87%, on 393 unit tests.
 
-Made the end-to-end suite actually run and turned coverage from a number into a gate. The specs had been failing on a 403 for every script bundle, recorded earlier as a sandbox limitation;
-
-- The suite now targets `localhost` and builds and serves the production app rather than the dev server.
-- Running it exposed a real defect: settings were persisted from an effect that ran on mount before the stored values had loaded, so each page load wrote empty defaults over the saved record and React's development double-invoke made the loss permanent, erasing a stored API key on reload;
-
-- settings are now written where the user edits them and nothing is written before an edit.
-- Grew the suite to 19 specs across Chromium, Firefox, and WebKit (57 runs) covering settings and key isolation, conversation history through real IndexedDB, candidate cards and the follow-up audit they trigger, the stop control, and a phone viewport.
-
-Coverage now fails the run below per-directory floors, and the project README records which modules those floors cover and why the orchestration layers are verified end to end instead.
-
 **Evidence and delivery status**
 
 `9a3d3f4`, `fb64308`, `d76110a`, `ceb01ae`
 
 [Back to change history](#change-history)
 
-<a id="change-6"></a>
+<a id="dated-history-declaration"></a>
 
 ### Declared Prospect Copilot's dated-history mode and linked it to the centralized repository policy
 
@@ -601,13 +630,12 @@ This documentation commit
 
 [Back to change history](#change-history)
 
-<a id="change-7"></a>
+<a id="port-restriction-and-shared-helpers"></a>
 
-### Completed the project's first repository-wide exhaustive pass
+### Port restriction, wire validation, and shared helpers
 
 - **Recorded date:** 2026-09-02.
 
-- Completed the project's first repository-wide exhaustive pass; the earlier pass had covered 8 of 52 source files.
 - Restricted the page fetcher to ports 80 and 443 on the initial URL and every redirect hop, closing an arbitrary-port probe against public hosts.
 
 - Made the report schema the single definition of its shape and validated the report event at the wire boundary instead of casting it.
@@ -621,9 +649,9 @@ Corrected MEDDIC so a distant contract renewal reads as looked-for-and-absent ra
 - Corrected a protocol-relative LinkedIn href that rendered as a malformed four-slash URL in the decision-maker table, matching the handling the homepage extractor already had.
 - Completed 36 missing JSDoc blocks, named the three buying-role patterns alongside the file's other patterns, removed an unreachable fallback, replaced duplicated literals with named constants, removed an unused catch binding, corrected a stale comment, and aligned the root layout with project style.
 
-- A second pass under the revised audit skill added request rate limiting to the chat endpoint, moved the stored API key into its own browser record so nothing that reads or exports the settings can carry the credential with it, migrated any key already saved in the previous combined record, moved settings persistence out of the page into a testable module, made nine internal symbols private, named the remaining scoring thresholds, and added unit tests for eleven previously untested logic modules.
+- Added request rate limiting to the chat endpoint, moved the stored API key into its own browser record so nothing that reads or exports the settings can carry the credential with it, migrated any key already saved in the previous combined record, moved settings persistence out of the page into a testable module, made nine internal symbols private, named the remaining scoring thresholds, and added unit tests for eleven previously untested logic modules.
 
-- A third pass ran the four simplification angles across every file after the review agents failed repeatedly: shared the absolute-URL rule, the JSON-LD node scan, routed-target resolution, and the per-worker progress emitter that had each been written twice;
+- Shared the absolute-URL rule, the JSON-LD node scan, routed-target resolution, and the per-worker progress emitter that had each been written twice;
 
 - centralized the remaining SSE phase names and scoring thresholds; and collected page anchors once instead of three times per analysis.
 - Added coverage measurement and an end-to-end suite: installed a version-matched coverage provider, scoped it to code that holds logic, and closed the one real gap it exposed by testing the standalone skill runner, which had no coverage at all.
@@ -636,7 +664,7 @@ Corrected MEDDIC so a distant contract renewal reads as looked-for-and-absent ra
 
 [Back to change history](#change-history)
 
-<a id="change-8"></a>
+<a id="commit-history-reconciliation"></a>
 
 ### Reconciled all 49 retained project commits with the repository summary
 
@@ -658,7 +686,7 @@ This documentation commit
 
 [Back to change history](#change-history)
 
-<a id="change-9"></a>
+<a id="architecture-inventory"></a>
 
 ### Added and categorized the source-backed architecture inventory
 
@@ -666,8 +694,6 @@ This documentation commit
 
 - Added and categorized the source-backed architecture inventory, then separated each technology/concept into its own row and mapped README sections for Project Control.
 - Documentation only; no runtime, dependency, or deployment change.
-
-One-item-per-row technology inventory and stable README mapping; runtime/dependencies unchanged.
 
 Grouped architecture into AI, frontend, backend logic, storage, and integration tables without runtime or dependency changes.
 
@@ -678,11 +704,9 @@ Grouped architecture into AI, frontend, backend logic, storage, and integration 
 
 `a575bee`, `b42d8c3`
 
-Historical work record
-
 [Back to change history](#change-history)
 
-<a id="change-10"></a>
+<a id="scoring-documentation-and-layout-table"></a>
 
 ### Documented evidenced scoring and team-page contacts, corrected the composite-score/BANT/MEDDIC distinction, and added the source-layout table
 
@@ -707,7 +731,7 @@ Historical work record
 
 [Back to change history](#change-history)
 
-<a id="change-11"></a>
+<a id="team-page-contact-extraction"></a>
 
 ### Shared label merging
 
@@ -738,7 +762,7 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
 
 [Back to change history](#change-history)
 
-<a id="change-12"></a>
+<a id="langgraph-workflow-migration"></a>
 
 ### Upgraded the runtime/dependencies and integrated LangChain model adapters and typed LangGraph request/subgraphs
 
@@ -773,7 +797,7 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
 
 [Back to change history](#change-history)
 
-<a id="change-13"></a>
+<a id="product-match-skill"></a>
 
 ### Introduced match schemas, routing, bounded candidate scoring, ranked reports, and selectable company cards
 
@@ -811,7 +835,7 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
 
 [Back to change history](#change-history)
 
-<a id="change-14"></a>
+<a id="initial-application"></a>
 
 ### Introduced the standalone BYOK prospect-audit application and four research skills
 
@@ -831,8 +855,8 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
   copying the API key out of Settings, and fixed conversations not saving to the sidebar when a
   reply failed before any text streamed in.
 
-- Consolidated duplicated JSON-extraction logic and other exhaustive-pass audit findings into shared
-  helpers, named constants, and a shared prop-type interface. Git reconciliation: Introduced the
+- Consolidated duplicated JSON-extraction logic into shared helpers, named constants, and a shared
+  prop-type interface. Git reconciliation: Introduced the
   standalone BYOK prospect-audit application and four research skills. Switched the default provider
   to DeepSeek and repaired settings/sidebar behavior. Hardened the initial pipeline and JSON
   extraction, added focused coverage, and detected selling context from the conversation for scoring

@@ -1,10 +1,13 @@
 import { END, START, StateGraph } from "@langchain/langgraph";
+import { CHAT_PHASE } from "@/lib/agent/schemas";
 import { streamChatCompletion } from "@/lib/llm";
 import {
+  STANDALONE_SKILL_NAMES,
   runStandaloneSkill,
   type StandaloneSkillName,
 } from "@/lib/skills/standalone";
 import {
+  buildScoreLabels,
   formatRuntimeLabel,
   localizedSkillName,
 } from "@/lib/localization";
@@ -13,10 +16,8 @@ import { resolveRoutedTarget } from "@/lib/workflow/target";
 import {
   PLAIN_CHAT_SYSTEM_PROMPT,
   WORKFLOW_NODE,
-  WORKFLOW_PHASE,
   WORKFLOW_STATUS,
 } from "@/lib/workflow/constants";
-import { buildScoreLabels } from "@/lib/workflow/events";
 import { buildReport } from "@/lib/workflow/report";
 import {
   WorkflowStateAnnotation,
@@ -24,19 +25,12 @@ import {
   type WorkflowStateUpdate,
 } from "@/lib/workflow/state";
 
-const STANDALONE_SKILL_NAMES: StandaloneSkillName[] = [
-  "research",
-  "qualify",
-  "contacts",
-  "outreach",
-];
-
 /**
  * Check whether a routed skill belongs to the standalone workflow.
  * @param skill internal router skill value
  * @returns true for research, qualification, contacts, or outreach
  */
-function isStandaloneSkill(skill: string): skill is StandaloneSkillName {
+export function isStandaloneSkill(skill: string): skill is StandaloneSkillName {
   return STANDALONE_SKILL_NAMES.some((name) => name === skill);
 }
 
@@ -83,7 +77,7 @@ async function runStandaloneNode(
   context.signal.throwIfAborted();
   context.emit({
     type: "phase",
-    phase: WORKFLOW_PHASE.routing,
+    phase: CHAT_PHASE.routing,
     detail: formatRuntimeLabel(state.runtimeLabels.matchedSkillTemplate, {
       skill: localizedSkillName(state.runtimeLabels, routing.skill),
     }),
@@ -93,7 +87,7 @@ async function runStandaloneNode(
     context.config,
     routing.skill,
     url,
-    routing.entity ?? null,
+    routing.entity,
     context.emit,
     routing.sellingContext,
     state.message,

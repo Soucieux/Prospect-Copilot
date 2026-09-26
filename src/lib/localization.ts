@@ -1,5 +1,9 @@
 /** Per-request localization labels and formatting helpers. */
 
+import type { RouterResult } from "@/lib/agent/schemas";
+import type { MatchCardLabels, ReportState } from "@/lib/chat-types";
+import type { ProspectCategory } from "@/lib/scoring/lead-scorer";
+
 /** Every app-authored string that can appear while processing one message. */
 export interface RuntimeLabels {
   matchedProspect: string;
@@ -129,14 +133,8 @@ export const RUNTIME_LABEL_DEFAULTS: RuntimeLabels = {
   unknownLabel: "unknown",
 };
 
-/** Skill names understood by the request router. */
-export type LocalizedSkillName =
-  | "prospect"
-  | "research"
-  | "qualify"
-  | "contacts"
-  | "outreach"
-  | "match";
+/** Skill names understood by the request router, which is also every report kind. */
+export type LocalizedSkillName = Exclude<RouterResult["skill"], "none">;
 
 const SKILL_LABEL_KEYS: Record<LocalizedSkillName, keyof RuntimeLabels> = {
   prospect: "skillProspect",
@@ -147,20 +145,21 @@ const SKILL_LABEL_KEYS: Record<LocalizedSkillName, keyof RuntimeLabels> = {
   match: "skillMatch",
 };
 
-const AGENT_LABEL_KEYS: Record<string, keyof RuntimeLabels> = {
-  "Company Research": "agentCompanyResearch",
-  "Contact Discovery": "agentContactDiscovery",
-  "Opportunity Scoring": "agentOpportunityScoring",
-  "Competitive Intel": "agentCompetitiveIntel",
-  "Outreach Strategy": "agentOutreachStrategy",
+/** The display name of the analysis worker that scores each category. */
+const AGENT_LABEL_KEYS: Record<ProspectCategory, keyof RuntimeLabels> = {
+  companyFit: "agentCompanyResearch",
+  contactAccess: "agentContactDiscovery",
+  opportunityQuality: "agentOpportunityScoring",
+  competitivePosition: "agentCompetitiveIntel",
+  outreachReadiness: "agentOutreachStrategy",
 };
 
-const CATEGORY_LABEL_KEYS: Record<string, keyof RuntimeLabels> = {
-  "Company Fit": "categoryCompanyFit",
-  "Contact Access": "categoryContactAccess",
-  "Opportunity Quality": "categoryOpportunityQuality",
-  "Competitive Position": "categoryCompetitivePosition",
-  "Outreach Readiness": "categoryOutreachReadiness",
+const CATEGORY_LABEL_KEYS: Record<ProspectCategory, keyof RuntimeLabels> = {
+  companyFit: "categoryCompanyFit",
+  contactAccess: "categoryContactAccess",
+  opportunityQuality: "categoryOpportunityQuality",
+  competitivePosition: "categoryCompetitivePosition",
+  outreachReadiness: "categoryOutreachReadiness",
 };
 
 const CONFIDENCE_LABEL_KEYS: Record<string, keyof RuntimeLabels> = {
@@ -170,9 +169,6 @@ const CONFIDENCE_LABEL_KEYS: Record<string, keyof RuntimeLabels> = {
   "Very Low": "confidenceVeryLow",
   Inferred: "confidenceInferred",
 };
-
-/** A dictionary of app-authored display strings keyed by a stable English key. */
-export type LabelSet = Record<string, string>;
 
 /**
  * Merge an untrusted partial translation over a complete English label set.
@@ -220,9 +216,11 @@ export function formatRuntimeLabel(
   template: string,
   replacements: Record<string, string | number>,
 ): string {
+  // A replacer function, not a string: a string replacement expands `$&`,
+  // `$$` and `$'`, which company names, products and URLs can all contain.
   return Object.entries(replacements).reduce(
     (formatted, [key, value]) =>
-      formatted.replaceAll(`{${key}}`, String(value)),
+      formatted.replaceAll(`{${key}}`, () => String(value)),
     template,
   );
 }
@@ -241,31 +239,29 @@ export function localizedSkillName(
 }
 
 /**
- * Resolve a translated display name for one prospect-analysis agent.
+ * Resolve a translated display name for the analysis worker of one category.
  * @param labels complete runtime labels for the request
- * @param agent internal agent name
- * @returns translated agent name, or the original name when unknown
+ * @param category the score category the worker produces
+ * @returns translated worker name
  */
 export function localizedAgentName(
   labels: RuntimeLabels,
-  agent: string,
+  category: ProspectCategory,
 ): string {
-  const key = AGENT_LABEL_KEYS[agent];
-  return key ? labels[key] : agent;
+  return labels[AGENT_LABEL_KEYS[category]];
 }
 
 /**
  * Resolve a translated score-category name.
  * @param labels complete runtime labels for the request
- * @param category internal English category name
- * @returns translated category name, or the original name when unknown
+ * @param category internal category key
+ * @returns translated category name
  */
 export function localizedCategoryName(
   labels: RuntimeLabels,
-  category: string,
+  category: ProspectCategory,
 ): string {
-  const key = CATEGORY_LABEL_KEYS[category];
-  return key ? labels[key] : category;
+  return labels[CATEGORY_LABEL_KEYS[category]];
 }
 
 /**
@@ -280,6 +276,43 @@ export function localizedConfidence(
 ): string {
   const key = CONFIDENCE_LABEL_KEYS[confidence];
   return key ? labels[key] : confidence;
+}
+
+/**
+ * Build the localized scorecard labels stored with a report.
+ * @param labels complete runtime translations for the request
+ * @param skill internal report kind
+ * @param confidenceValue localized confidence value when available
+ * @returns localized report-card chrome
+ */
+export function buildScoreLabels(
+  labels: RuntimeLabels,
+  skill: LocalizedSkillName,
+  confidenceValue: string = "",
+): ReportState["scoreLabels"] {
+  return {
+    grade: labels.gradeLabel,
+    confidence: labels.confidenceLabel,
+    confidenceValue,
+    report: formatRuntimeLabel(labels.reportTemplate, {
+      skill: localizedSkillName(labels, skill),
+    }),
+  };
+}
+
+/**
+ * Build the card chrome for sell-direction matches, which the router
+ * translates together with the other runtime labels.
+ * @param labels complete runtime translations for the request
+ * @returns localized match-card labels
+ */
+export function matchCardLabels(labels: RuntimeLabels): MatchCardLabels {
+  return {
+    founded: labels.foundedLabel,
+    fit: labels.fitLabel,
+    auditHint: labels.auditHint,
+    auditRequestTemplate: labels.auditRequestTemplate,
+  };
 }
 
 /**

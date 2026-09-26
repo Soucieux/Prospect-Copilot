@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  isLikelyCompanyUrl,
-  resolveCompanyUrl,
-  routeMessageForWorkflow,
-} from "./router";
+import { resolveCompanyUrl, routeMessageForWorkflow } from "./router";
 import { LlmError } from "@/lib/llm";
 import type { LlmConfig } from "@/lib/llm";
 
@@ -433,28 +429,6 @@ describe("routeMessageForWorkflow", () => {
       "Acme Corp",
       "https://globex.example.com",
     ]);
-  });
-});
-
-describe("isLikelyCompanyUrl", () => {
-  it("accepts a normal company domain", () => {
-    expect(isLikelyCompanyUrl("https://acme.example.com/about")).toBe(true);
-  });
-
-  it("rejects a single-label host that cannot be a public site", () => {
-    expect(isLikelyCompanyUrl("https://intranet/")).toBe(false);
-  });
-
-  it.each([
-    "https://www.linkedin.com/company/acme",
-    "https://en.wikipedia.org/wiki/Acme",
-    "https://www.facebook.com/acme",
-  ])("rejects the non-company host %s", (url) => {
-    expect(isLikelyCompanyUrl(url)).toBe(false);
-  });
-
-  it("rejects a string that is not a URL at all", () => {
-    expect(isLikelyCompanyUrl("not a url")).toBe(false);
   });
 });
 

@@ -4,15 +4,13 @@
  * chat-history already separate logic from rendering.
  */
 
-import { REPORT_STATE_SCHEMA } from "@/lib/agent/schemas";
+import { AGENT_STATUSES, REPORT_STATE_SCHEMA } from "@/lib/agent/schemas";
 import type { ChatMessage, ProgressEvent } from "@/lib/chat-types";
 
 /** Applies an immutable patch to the trailing assistant message. */
 export type UpdateLastMessage = (
   patch: (message: ChatMessage) => ChatMessage,
 ) => void;
-
-const AGENT_STATUSES = ["running", "done", "failed"] as const;
 
 /**
  * Narrow an agent status from the wire instead of asserting it.

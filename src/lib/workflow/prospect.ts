@@ -9,15 +9,11 @@ import {
   type ProspectAnalysisResults,
   type ProspectScoreState,
 } from "@/lib/agent/orchestrator";
-import type { SynthesisResult } from "@/lib/agent/schemas";
+import { CHAT_PHASE, type SynthesisResult } from "@/lib/agent/schemas";
+import { buildScoreLabels } from "@/lib/localization";
 import type { WorkflowRuntimeContext } from "@/lib/workflow/context";
 import { resolveRoutedTarget } from "@/lib/workflow/target";
-import {
-  WORKFLOW_NODE,
-  WORKFLOW_PHASE,
-  WORKFLOW_STATUS,
-} from "@/lib/workflow/constants";
-import { buildScoreLabels } from "@/lib/workflow/events";
+import { WORKFLOW_NODE, WORKFLOW_STATUS } from "@/lib/workflow/constants";
 import { buildReport } from "@/lib/workflow/report";
 import { runPlainChatNode } from "@/lib/workflow/standalone";
 import {
@@ -70,7 +66,7 @@ async function resolveProspectTarget(
   if (target) {
     context.emit({
       type: "phase",
-      phase: WORKFLOW_PHASE.routing,
+      phase: CHAT_PHASE.routing,
       detail: state.runtimeLabels.matchedProspect,
     });
   }
@@ -142,6 +138,7 @@ function scoreProspectNode(state: ProspectState): ProspectStateUpdate {
     scoreState: scoreProspectBriefing(
       requireStageValue(state.briefing, "briefing"),
       requireStageValue(state.analysisResults, "analysis"),
+      state.routing?.sellingContext ?? null,
     ),
   };
 }
@@ -196,11 +193,7 @@ function formatProspectNode(
     score: outcome.composite.score,
     grade: outcome.composite.grade,
     confidence: outcome.composite.confidence,
-    categories: outcome.composite.weighted.map((row, index) => ({
-      category: outcome.categoryLabels[index] ?? row.category,
-      score: row.score,
-      weight: row.weight,
-    })),
+    categories: outcome.categories,
     scoreLabels: buildScoreLabels(
       state.runtimeLabels,
       "prospect",

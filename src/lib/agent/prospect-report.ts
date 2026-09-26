@@ -7,12 +7,12 @@
 import { NOT_PUBLICLY_AVAILABLE } from "@/lib/constants";
 import type { SubagentResult, SynthesisResult } from "@/lib/agent/schemas";
 import type { DiscoveryBriefing } from "@/lib/agent/orchestrator";
-import { SUBAGENTS, subagentOutcomes } from "@/lib/skills/subagents";
+import { subagentOutcomes } from "@/lib/skills/subagents";
 import {
-  CATEGORY_LABELS,
+  CATEGORY_WEIGHTS,
+  type BantResult,
   type MeddicResult,
   type ProspectComposite,
-  type scoreBant,
 } from "@/lib/scoring/lead-scorer";
 import {
   RUNTIME_LABEL_DEFAULTS,
@@ -197,7 +197,7 @@ export function assembleLocalizedFallbackReport(
     "",
   ];
   subagentOutcomes(results).forEach(({ definition, settled }) => {
-    const agent = localizedAgentName(runtimeLabels, definition.name);
+    const agent = localizedAgentName(runtimeLabels, definition.category);
     lines.push(`## ${agent}`, "");
     if (settled.status === "fulfilled") {
       lines.push(settled.value.summary, "");
@@ -215,6 +215,16 @@ export function assembleLocalizedFallbackReport(
   return lines.join("\n");
 }
 
+/**
+ * Make scraped or model-written text safe inside one Markdown table cell: a
+ * literal pipe would start a new column, and a line break would end the row.
+ * @param value the cell text
+ * @returns the text with line breaks collapsed and pipes escaped
+ */
+function tableCell(value: string): string {
+  return value.replace(/\s*[\r\n]+\s*/g, " ").replaceAll("|", "\\|");
+}
+
 /** Report-label key for each MEDDIC element, keyed by its stable code. */
 const MEDDIC_LABEL_KEYS: Record<string, string> = {
   M: "meddicMetrics",
@@ -224,6 +234,9 @@ const MEDDIC_LABEL_KEYS: Record<string, string> = {
   I: "meddicIdentifyPain",
   C: "meddicChampion",
 };
+
+/** The action-plan sections, in the order the report prints them. */
+const ACTION_PLAN_SECTIONS = ["immediate", "shortTerm", "longTerm"] as const;
 
 /**
  * Resolve the translated display name for one MEDDIC element.
@@ -260,7 +273,7 @@ export function assembleReport(
   results: PromiseSettledResult<SubagentResult>[],
   composite: ProspectComposite,
   synthesis: SynthesisResult,
-  bant: ReturnType<typeof scoreBant>,
+  bant: BantResult,
   sellingContext: string | null,
   runtimeLabels: RuntimeLabels = RUNTIME_LABEL_DEFAULTS,
   meddic?: MeddicResult,
@@ -270,24 +283,22 @@ export function assembleReport(
   const labels: ProspectReportLabels = synthesis.labels
     ? mergeLabelSet(PROSPECT_REPORT_LABELS, synthesis.labels)
     : PROSPECT_REPORT_LABELS;
-  const categoryDisplayName = (englishName: string): string =>
-    localizedCategoryName(runtimeLabels, englishName);
-  const subagentLabel = (definition: (typeof SUBAGENTS)[number]): string =>
-    localizedAgentName(runtimeLabels, definition.name);
+  /** Localize a confidence value for display. */
   const confidenceLabel = (value: string): string =>
     localizedConfidence(runtimeLabels, value);
+  /** Localize a seniority value; the C-Suite key drops its hyphen. */
   const seniorityLabel = (value: string): string => {
     const key = value === "C-Suite" ? "CSuite" : value;
     return labels[`sen_${key}`] ?? value;
   };
+  /** Localize a buying-role value; the key drops its spaces. */
   const buyingRoleLabel = (value: string): string =>
     labels[`role_${value.replaceAll(" ", "")}`] ?? value;
 
   const today = new Date().toISOString().slice(0, 10);
-  const reportTitle = labels.reportTitleTemplate.replace(
-    "{company}",
-    briefing.companyName ?? briefing.url,
-  );
+  const reportTitle = formatRuntimeLabel(labels.reportTitleTemplate, {
+    company: briefing.companyName ?? briefing.url,
+  });
   const lines: string[] = [
     `# ${reportTitle}`,
     "",
@@ -303,7 +314,7 @@ export function assembleReport(
   ];
   for (const row of composite.weighted) {
     lines.push(
-      `| ${categoryDisplayName(row.category)} | ${row.score}/100 | ${Math.round(row.weight * 100)}% |`,
+      `| ${localizedCategoryName(runtimeLabels, row.category)} | ${row.score}/100 | ${Math.round(row.weight * 100)}% |`,
     );
   }
   lines.push(
@@ -317,7 +328,7 @@ export function assembleReport(
   for (const [index, dimension] of bant.dimensions.entries()) {
     const translated = synthesis.bantTranslations?.[index];
     lines.push(
-      `| ${translated?.name ?? dimension.name} | ${dimension.score}/25 | ${translated?.evidence ?? dimension.evidence} |`,
+      `| ${tableCell(translated?.name ?? dimension.name)} | ${dimension.score}/25 | ${tableCell(translated?.evidence ?? dimension.evidence)} |`,
     );
   }
   if (meddic) {
@@ -325,10 +336,9 @@ export function assembleReport(
       "",
       `## ${labels.meddicSignals}`,
       "",
-      labels.meddicCompleteTemplate.replace(
-        "{percent}",
-        String(meddic.completenessPercent),
-      ),
+      formatRuntimeLabel(labels.meddicCompleteTemplate, {
+        percent: meddic.completenessPercent,
+      }),
       "",
       `| ${labels.elementCol} | ${labels.knownCol} | ${labels.missingCol} | ${labels.notAssessedCol} |`,
       "|---------|-------|----------|----------|",
@@ -355,14 +365,11 @@ export function assembleReport(
     synthesis.executiveSummary,
     "",
     `## ${labels.actionPlan}`,
-    "",
-    `### ${labels.immediate}`,
   );
-  for (const action of synthesis.actionPlan.immediate) lines.push(`- ${action}`);
-  lines.push("", `### ${labels.shortTerm}`);
-  for (const action of synthesis.actionPlan.shortTerm) lines.push(`- ${action}`);
-  lines.push("", `### ${labels.longTerm}`);
-  for (const action of synthesis.actionPlan.longTerm) lines.push(`- ${action}`);
+  for (const section of ACTION_PLAN_SECTIONS) {
+    lines.push("", `### ${labels[section]}`);
+    for (const action of synthesis.actionPlan[section]) lines.push(`- ${action}`);
+  }
   lines.push(
     "",
     `## ${labels.readyEmail}`,
@@ -387,13 +394,15 @@ export function assembleReport(
     );
     for (const contact of briefing.contacts.slice(0, MAX_CONTACTS_IN_REPORT)) {
       lines.push(
-        `| ${contact.name} | ${contact.title ?? labels.notAvailable} | ${seniorityLabel(contact.seniority)} | ${buyingRoleLabel(contact.buyingRole)} | ${contact.linkedin ?? "-"} |`,
+        `| ${tableCell(contact.name)} | ${tableCell(contact.title ?? labels.notAvailable)} | ${seniorityLabel(contact.seniority)} | ${buyingRoleLabel(contact.buyingRole)} | ${contact.linkedin ?? "-"} |`,
       );
     }
     lines.push("", "---", "");
   }
   subagentOutcomes(results).forEach(({ definition, settled }) => {
-    lines.push(`## ${subagentLabel(definition)} (${Math.round(definition.weight * 100)}%)`, "");
+    const agent = localizedAgentName(runtimeLabels, definition.category);
+    const weight = Math.round(CATEGORY_WEIGHTS[definition.category] * 100);
+    lines.push(`## ${agent} (${weight}%)`, "");
     if (settled.status === "fulfilled") {
       lines.push(
         settled.value.summary,
@@ -403,31 +412,27 @@ export function assembleReport(
       );
       for (const finding of settled.value.findings) {
         lines.push(
-          `| ${finding.claim} | ${finding.evidence} | ${confidenceLabel(finding.confidence)} |`,
+          `| ${tableCell(finding.claim)} | ${tableCell(finding.evidence)} | ${confidenceLabel(finding.confidence)} |`,
         );
       }
       lines.push("", `**${labels.recommendationLabel}:** ${settled.value.recommendation}`, "");
     } else {
       lines.push(
-        labels.analysisUnavailableTemplate.replace(
-          "{reason}",
-          labels.notAvailable,
-        ),
+        formatRuntimeLabel(labels.analysisUnavailableTemplate, {
+          reason: labels.notAvailable,
+        }),
         "",
       );
     }
   });
   if (composite.degradedCategories.length > 0) {
     const degradedNames = composite.degradedCategories
-      .map((key) => {
-        const english = CATEGORY_LABELS[key as keyof typeof CATEGORY_LABELS];
-        return english ? localizedCategoryName(runtimeLabels, english) : key;
-      })
+      .map((category) => localizedCategoryName(runtimeLabels, category))
       .join(", ");
     lines.push(
       "---",
       "",
-      `> ${labels.degradedNoteTemplate.replace("{categories}", degradedNames)}`,
+      `> ${formatRuntimeLabel(labels.degradedNoteTemplate, { categories: degradedNames })}`,
       "",
     );
   }

@@ -1,4 +1,5 @@
 import { RESPOND_IN_USER_LANGUAGE } from "@/lib/constants";
+import { STRUCTURED_LLM_RETRY_OPTIONS } from "@/lib/llm";
 
 /** Top-level and subgraph node identifiers. */
 export const WORKFLOW_NODE = {
@@ -21,29 +22,22 @@ export const WORKFLOW_NODE = {
   standaloneRun: "run_standalone",
 } as const;
 
-/** Serializable workflow lifecycle values. */
+/** Serializable workflow lifecycle values a node can record. */
 export const WORKFLOW_STATUS = {
   running: "running",
   completed: "completed",
-  cancelled: "cancelled",
-  failed: "failed",
 } as const;
 
-/** Internal phase identifiers preserved on the existing SSE contract. */
-export const WORKFLOW_PHASE = {
-  routing: "routing",
-  discovery: "discovery",
-  analysis: "analysis",
-  synthesis: "synthesis",
-  done: "done",
-} as const;
-
-/** LangGraph retry settings for one structured routing request. */
+/**
+ * LangGraph retry settings for one structured routing request. The graph owns
+ * this node's retry, but its budget is the one every structured model call
+ * uses, so the numbers are read from that policy rather than repeated.
+ */
 export const ROUTER_RETRY_POLICY = {
-  initialInterval: 300,
+  initialInterval: STRUCTURED_LLM_RETRY_OPTIONS.initialDelayMs,
   backoffFactor: 2,
-  maxInterval: 300,
-  maxAttempts: 2,
+  maxInterval: STRUCTURED_LLM_RETRY_OPTIONS.initialDelayMs,
+  maxAttempts: STRUCTURED_LLM_RETRY_OPTIONS.maxAttempts,
   jitter: false,
   logWarning: false,
 } as const;
@@ -51,6 +45,3 @@ export const ROUTER_RETRY_POLICY = {
 /** System prompt for the ordinary chat branch. */
 export const PLAIN_CHAT_SYSTEM_PROMPT =
   `You are a helpful sales intelligence assistant. Answer concisely and practically.\n${RESPOND_IN_USER_LANGUAGE}`;
-
-/** Recovery language used only when routing cannot identify the user's language. */
-export const DEFAULT_RESPONSE_LANGUAGE = "English";
