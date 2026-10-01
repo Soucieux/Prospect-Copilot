@@ -318,7 +318,7 @@ One record per change; complete details and evidence are below. Older work dates
 - **Evidence:** `npm audit` reports no vulnerabilities. The type check, the 448 unit tests, the
   coverage gate, the production build, and the 57 end-to-end runs across Chromium, Firefox, and
   WebKit pass.
-- **Status:** delivered uncommitted with local checks, then committed as `deaf19e`. Not deployed.
+- **Status:** delivered uncommitted with local checks, then committed as `c9f6a19`. Not deployed.
 
 [Back to change history](#change-history)
 
@@ -340,7 +340,7 @@ One record per change; complete details and evidence are below. Older work dates
 - **Evidence:** `npm ci` installs the new version against its published checksum and `npm ls`
   shows undici 7.29.1 under cheerio. The type check, the 448 unit tests, the coverage gate, the
   production build, and the 57 end-to-end runs across Chromium, Firefox, and WebKit pass.
-- **Status:** delivered uncommitted with local checks, then committed as `4fc2141`. Not deployed.
+- **Status:** delivered uncommitted with local checks, then committed as `8e0f776`. Not deployed.
 
 [Back to change history](#change-history)
 
@@ -383,7 +383,7 @@ One record per change; complete details and evidence are below. Older work dates
 - **Coverage floors:** raised to what the suite now measures, as the ratchet rule requires: 85%
   of statements and 84% of branches overall, 95% of statements in `src/lib`, 92% in `extract`,
   100% in `scoring`, 97% in `skills` and the chat endpoint, and 66% of branches in `workflow`.
-- **Status:** delivered uncommitted with local checks, then committed as `850022a`. Not deployed.
+- **Status:** delivered uncommitted with local checks, then committed as `0b905b2`. Not deployed.
 
 [Back to change history](#change-history)
 
@@ -450,7 +450,7 @@ One record per change; complete details and evidence are below. Older work dates
   external access.
 - **Evidence:** `npm audit` reports no vulnerabilities. Typecheck, the 394 unit tests, the coverage
   gate, the production build, and the 57 end-to-end runs across Chromium, Firefox, and WebKit pass.
-- **Status:** delivered uncommitted with local checks, then committed as `06df496`. Not deployed.
+- **Status:** delivered uncommitted with local checks, then committed as `8fab0bc`. Not deployed.
 
 [Back to change history](#change-history)
 
@@ -508,7 +508,7 @@ One record per change; complete details and evidence are below. Older work dates
 - **Structure:** Put purpose, capabilities, setup, architecture, and workflows before history.
 - **History:** Merge matching repository-origin records into the owning change; preserve unique detail, evidence, and older links.
 - **Ownership:** Keep user documentation here; route scoped contributor rules through root AGENTS.
-- **Status:** Documentation changes only; initially delivered uncommitted and recorded in `6c2027f`. Existing application versions, artifacts, and deployment state are unchanged.
+- **Status:** Documentation changes only; initially delivered uncommitted and recorded in `aec70f4`. Existing application versions, artifacts, and deployment state are unchanged.
 
 [Back to change history](#change-history)
 
@@ -540,7 +540,7 @@ Local documentation changes; initially delivered uncommitted and recorded in thi
 
 **Evidence and delivery status**
 
-Local documentation update; initially delivered uncommitted and recorded in `6c2027f`
+Local documentation update; initially delivered uncommitted and recorded in `aec70f4`
 
 [Back to change history](#change-history)
 
@@ -571,7 +571,7 @@ Local documentation update; initially delivered uncommitted and recorded in `6c2
 
 **Evidence and delivery status**
 
-`9609945`, `efb9bb4`, `6bbddc5`, `f7b45c7`, `23f56c9`, `dc56c76`, `34ad65e`
+`bbf15eb`, `4be9295`, `a8c6089`, `687a4c9`, `607bb3c`, `8b1776d`, `28177bc`
 
 [Back to change history](#change-history)
 
@@ -598,7 +598,7 @@ Local documentation update; initially delivered uncommitted and recorded in `6c2
 
 **Evidence and delivery status**
 
-`b9d403a`, `cd75370`, `9c5160a`, `9a8a6b8`, `a1d89dc`
+`774bef8`, `b20d31b`, `dbb2776`, `e0e992f`, `8ace6a8`
 
 [Back to change history](#change-history)
 
@@ -659,7 +659,7 @@ Branch coverage rose from 90% to 91% overall with every targeted file above 87%,
 
 **Evidence and delivery status**
 
-`dbb3641`, `8fcc0cf`, `dd7d2e1`, `a28b0aa`
+`a5124be`, `5e70174`, `9bfb4d0`, `836e26f`
 
 [Back to change history](#change-history)
 
@@ -707,7 +707,7 @@ Corrected MEDDIC so a distant contract renewal reads as looked-for-and-absent ra
 
 **Evidence and delivery status**
 
-`4dccda3`, `d3947d7`, `b32815b`, `ff7235d`, `cae93e0`, `088c5ce`, `e567559`
+`d5c594c`, `e7990a6`, `bbf0dc7`, `febb5c8`, `10925fc`, `6c281c0`, `d29872d`
 
 [Back to change history](#change-history)
 
@@ -774,7 +774,7 @@ Grouped architecture into AI, frontend, backend logic, storage, and integration 
 
 **Evidence and delivery status**
 
-`6a4a797`, `ef8dbbb`, `a94d299`
+`890222c`, `ebdef0c`, `a94d299`
 
 [Back to change history](#change-history)
 
@@ -805,7 +805,7 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
 
 **Evidence and delivery status**
 
-`13426ea`, `e4cb29f`, `648ecfd`, `67192df`, `93b7160`, `ce910b5`
+`ce267be`, `09a5568`, `dfc2720`, `a0b4920`, `235b92f`, `2be1bae`
 
 [Back to change history](#change-history)
 
