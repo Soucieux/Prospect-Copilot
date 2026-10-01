@@ -318,7 +318,7 @@ One record per change; complete details and evidence are below. Older work dates
 - **Evidence:** `npm audit` reports no vulnerabilities. The type check, the 448 unit tests, the
   coverage gate, the production build, and the 57 end-to-end runs across Chromium, Firefox, and
   WebKit pass.
-- **Status:** delivered uncommitted with local checks. Not deployed.
+- **Status:** delivered uncommitted with local checks, then committed as `deaf19e`. Not deployed.
 
 [Back to change history](#change-history)
 
@@ -340,7 +340,7 @@ One record per change; complete details and evidence are below. Older work dates
 - **Evidence:** `npm ci` installs the new version against its published checksum and `npm ls`
   shows undici 7.29.1 under cheerio. The type check, the 448 unit tests, the coverage gate, the
   production build, and the 57 end-to-end runs across Chromium, Firefox, and WebKit pass.
-- **Status:** delivered uncommitted with local checks. Not deployed.
+- **Status:** delivered uncommitted with local checks, then committed as `4fc2141`. Not deployed.
 
 [Back to change history](#change-history)
 
@@ -383,7 +383,7 @@ One record per change; complete details and evidence are below. Older work dates
 - **Coverage floors:** raised to what the suite now measures, as the ratchet rule requires: 85%
   of statements and 84% of branches overall, 95% of statements in `src/lib`, 92% in `extract`,
   100% in `scoring`, 97% in `skills` and the chat endpoint, and 66% of branches in `workflow`.
-- **Status:** delivered uncommitted with local checks. Not deployed.
+- **Status:** delivered uncommitted with local checks, then committed as `850022a`. Not deployed.
 
 [Back to change history](#change-history)
 
