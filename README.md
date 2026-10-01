@@ -271,6 +271,7 @@ One record per change; complete details and evidence are below. Older work dates
 
 | Record | Date | Highlights | Details |
 |---|---|---|---|
+| Maintenance | 2026-09-30 | <ul><li><strong>Security:</strong> Cleared a critical Next.js advisory published on 2026-09-30: image generation through `next/og` could run attacker-supplied code.</li><li><strong>Version:</strong> Next.js 16.3.6; no other package moves.</li><li><strong>Exposure:</strong> None found: the app does not use `next/og`.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](#next-og-advisory-cleared) |
 | Maintenance | 2026-09-30 | <ul><li><strong>Security:</strong> Cleared the medium advisory GitHub reported against undici, the HTTP client cheerio depends on: a hostile WebSocket server could crash the Node.js process.</li><li><strong>Version:</strong> undici 7.29.1, within the range cheerio declares; no other package moves.</li><li><strong>Exposure:</strong> None found: the app hands cheerio HTML it fetched itself and never opens a WebSocket.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](#undici-advisory-cleared) |
 | Maintenance | 2026-09-26 | <ul><li><strong>Reliability:</strong> An error page (404, 500, and the like) is no longer read as company evidence; a page that fails is left out of the briefing.</li><li><strong>Scoring:</strong> Competitive Position stays at the neutral 50 until you say what you sell, decided in code rather than left to the model, and the synthesis reads the same scores the report table shows.</li><li><strong>Structure:</strong> Each fetched page is parsed once and shared by every extractor; one definition names the progress phases, worker states and skill names; scoring is keyed by category so translations cannot drift; the match stages share one request object; the retry helpers no longer depend on the model adapter.</li><li><strong>Social links:</strong> A LinkedIn or social link written with a capitalised scheme is no longer mangled in the report.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](#shared-page-parse-and-error-pages) |
 | Maintenance | 2026-09-26 | <ul><li><strong>Icon:</strong> Redrew the project icon in the macOS icon shape at the standard size; the icon Next.js serves and the project folder's icon come from the same master.</li></ul> | [Full record](#aligned-project-icon) |
@@ -297,6 +298,29 @@ One record per change; complete details and evidence are below. Older work dates
 
 <details>
 <summary>Full records for this table</summary>
+
+<a id="next-og-advisory-cleared"></a>
+
+### Next.js image-generation advisory cleared — 2026-09-30
+
+- **What was reported:** `npm audit` found one critical advisory against Next.js 16.3.3 on the
+  day it was published. The Node.js `ImageResponse` from `next/og` could run attacker-supplied
+  code when untrusted values reach the SVG it renders (GHSA-vcvr-r3jv-pc5j); it affects 16.2.0
+  through 16.3.5.
+- **Exposure:** none found. The project never imports `next/og` or `ImageResponse`, and its
+  browser icon is the static `src/app/icon.png`, not a generated image route.
+- **Fix:** `next` moves to 16.3.6, its first patched release, with `@next/env` and the platform
+  compiler packages at the same version. The manifest's caret range now starts at 16.3.6 and the
+  lockfile pins it; nothing else moves. The lockfile was updated with npm 11, and `npm ci` with
+  npm 10 installs it.
+- **Unchanged:** `agentRules: false`, application behavior, model requests, browser storage, and
+  external access.
+- **Evidence:** `npm audit` reports no vulnerabilities. The type check, the 448 unit tests, the
+  coverage gate, the production build, and the 57 end-to-end runs across Chromium, Firefox, and
+  WebKit pass.
+- **Status:** delivered uncommitted with local checks. Not deployed.
+
+[Back to change history](#change-history)
 
 <a id="undici-advisory-cleared"></a>
 
