@@ -271,6 +271,7 @@ One record per change; complete details and evidence are below. Older work dates
 
 | Record | Date | Highlights | Details |
 |---|---|---|---|
+| Maintenance | 2026-09-30 | <ul><li><strong>Security:</strong> Cleared the medium advisory GitHub reported against undici, the HTTP client cheerio depends on: a hostile WebSocket server could crash the Node.js process.</li><li><strong>Version:</strong> undici 7.29.1, within the range cheerio declares; no other package moves.</li><li><strong>Exposure:</strong> None found: the app hands cheerio HTML it fetched itself and never opens a WebSocket.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](#undici-advisory-cleared) |
 | Maintenance | 2026-09-26 | <ul><li><strong>Reliability:</strong> An error page (404, 500, and the like) is no longer read as company evidence; a page that fails is left out of the briefing.</li><li><strong>Scoring:</strong> Competitive Position stays at the neutral 50 until you say what you sell, decided in code rather than left to the model, and the synthesis reads the same scores the report table shows.</li><li><strong>Structure:</strong> Each fetched page is parsed once and shared by every extractor; one definition names the progress phases, worker states and skill names; scoring is keyed by category so translations cannot drift; the match stages share one request object; the retry helpers no longer depend on the model adapter.</li><li><strong>Social links:</strong> A LinkedIn or social link written with a capitalised scheme is no longer mangled in the report.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](#shared-page-parse-and-error-pages) |
 | Maintenance | 2026-09-26 | <ul><li><strong>Icon:</strong> Redrew the project icon in the macOS icon shape at the standard size; the icon Next.js serves and the project folder's icon come from the same master.</li></ul> | [Full record](#aligned-project-icon) |
 | Maintenance | 2026-09-23 | <ul><li><strong>Tests:</strong> Prospect scoring is now tested when analysis workers fail: any one of them, the one that reports hiring and pain signals, or all five.</li><li><strong>Behavior:</strong> Unchanged; the tests pin what a failed worker already did.</li></ul> | [Full record](#failed-worker-scoring-tests) |
@@ -296,6 +297,28 @@ One record per change; complete details and evidence are below. Older work dates
 
 <details>
 <summary>Full records for this table</summary>
+
+<a id="undici-advisory-cleared"></a>
+
+### undici advisory cleared — 2026-09-30
+
+- **What was reported:** one medium advisory against the lockfile. undici 7.29.0 let a WebSocket
+  server crash the whole Node.js process with a compressed message that passes the decompression
+  size limit and then carries a malformed block (GHSA-3wwx-pv8p-q78v, CVE-2026-85024).
+- **Where it comes from:** `cheerio` 1.2.0 is the only package that depends on undici, through the
+  range `^7.19.0`. Cheerio uses undici's HTTP client only in `fromURL`, which this project never
+  calls: the project's own fetcher downloads every page and hands the HTML to `cheerio.load`.
+  Nothing in the project opens a WebSocket, so the crash was not reachable here.
+- **Fix:** the lockfile pins undici 7.29.1, the first patched 7.x release and within cheerio's
+  range. The manifest is unchanged and no other package moves.
+- **Unchanged:** `agentRules: false`, application behavior, model requests, browser storage, and
+  external access.
+- **Evidence:** `npm ci` installs the new version against its published checksum and `npm ls`
+  shows undici 7.29.1 under cheerio. The type check, the 448 unit tests, the coverage gate, the
+  production build, and the 57 end-to-end runs across Chromium, Firefox, and WebKit pass.
+- **Status:** delivered uncommitted with local checks. Not deployed.
+
+[Back to change history](#change-history)
 
 <a id="shared-page-parse-and-error-pages"></a>
 
