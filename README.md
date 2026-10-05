@@ -68,9 +68,9 @@ LLM_ALLOWED_BASE_URLS="https://api.openai.com/v1,http://127.0.0.1:11434/v1" npm 
 3. Standalone skills (**research / qualify / contacts / outreach**) run light discovery when a URL
    is given, then stream their markdown deliverable.
 4. **Match** uses one ranked-candidate pipeline for both directions: it can find likely buyers for
-   something you want to sell or places that sell something you want to buy. Candidate URL
-   resolution and scoring use separate bounded worker pools with at most four active jobs - see
-   "Finding buyers or sellers for a product" below.
+   something you want to sell or places that sell something you want to buy.
+   - Candidate URL resolution and scoring use separate bounded worker pools with at most four active
+     jobs - see "Finding buyers or sellers for a product" below.
 5. Every report renders as structured in-app content; match results use selectable cards with full
    company names, clickable company websites, and a separate full-review action.
 6. Conversations and their report cards persist in your browser's IndexedDB, including after
@@ -271,6 +271,7 @@ One record per change; complete details and evidence are below. Older work dates
 
 | Record | Date | Highlights | Details |
 |---|---|---|---|
+| Documentation | 2026-10-05 | <ul><li><strong>Readability:</strong> Long paragraphs, bullets and table cells are now short leads with sub-points, one fact each; no detail was removed.</li></ul> | [Full record](#readme-structure) |
 | Maintenance | 2026-09-30 | <ul><li><strong>Security:</strong> Cleared a critical Next.js advisory published on 2026-09-30: image generation through `next/og` could run attacker-supplied code.</li><li><strong>Version:</strong> Next.js 16.3.6; no other package moves.</li><li><strong>Exposure:</strong> None found: the app does not use `next/og`.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](#next-og-advisory-cleared) |
 | Maintenance | 2026-09-30 | <ul><li><strong>Security:</strong> Cleared the medium advisory GitHub reported against undici, the HTTP client cheerio depends on: a hostile WebSocket server could crash the Node.js process.</li><li><strong>Version:</strong> undici 7.29.1, within the range cheerio declares; no other package moves.</li><li><strong>Exposure:</strong> None found: the app hands cheerio HTML it fetched itself and never opens a WebSocket.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](#undici-advisory-cleared) |
 | Maintenance | 2026-09-26 | <ul><li><strong>Reliability:</strong> An error page (404, 500, and the like) is no longer read as company evidence; a page that fails is left out of the briefing.</li><li><strong>Scoring:</strong> Competitive Position stays at the neutral 50 until you say what you sell, decided in code rather than left to the model, and the synthesis reads the same scores the report table shows.</li><li><strong>Structure:</strong> Each fetched page is parsed once and shared by every extractor; one definition names the progress phases, worker states and skill names; scoring is keyed by category so translations cannot drift; the match stages share one request object; the retry helpers no longer depend on the model adapter.</li><li><strong>Social links:</strong> A LinkedIn or social link written with a capitalised scheme is no longer mangled in the report.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](#shared-page-parse-and-error-pages) |
@@ -299,6 +300,22 @@ One record per change; complete details and evidence are below. Older work dates
 <details>
 <summary>Full records for this table</summary>
 
+<a id="readme-structure"></a>
+
+### README laid out as short points — 2026-10-05
+
+- **Why:** many records and some guidance ran as bullets or paragraphs of 50 to 100 words, which hid
+  the separate facts inside them.
+- **Layout:** every paragraph, bullet and table cell over 50 words is now a short lead with
+  sub-points, one fact each. The wording was moved, not rewritten.
+- **Unchanged:** every section, heading, link, anchor, table row, diagram, number and identifier.
+- **Evidence:** compared with the previous version, no word is removed, and the headings, anchors,
+  links, code spans, numbers and fenced samples are identical. The README layout, link and history
+  checks pass.
+- **Scope:** Documentation only; no source or dependency changed.
+
+[Back to change history](#change-history)
+
 <a id="next-og-advisory-cleared"></a>
 
 ### Next.js image-generation advisory cleared — 2026-09-30
@@ -309,10 +326,11 @@ One record per change; complete details and evidence are below. Older work dates
   through 16.3.5.
 - **Exposure:** none found. The project never imports `next/og` or `ImageResponse`, and its
   browser icon is the static `src/app/icon.png`, not a generated image route.
-- **Fix:** `next` moves to 16.3.6, its first patched release, with `@next/env` and the platform
-  compiler packages at the same version. The manifest's caret range now starts at 16.3.6 and the
-  lockfile pins it; nothing else moves. The lockfile was updated with npm 11, and `npm ci` with
-  npm 10 installs it.
+- **Fix:**
+  - `next` moves to 16.3.6, its first patched release, with `@next/env` and the platform compiler
+    packages at the same version.
+  - The manifest's caret range now starts at 16.3.6 and the lockfile pins it; nothing else moves.
+  - The lockfile was updated with npm 11, and `npm ci` with npm 10 installs it.
 - **Unchanged:** `agentRules: false`, application behavior, model requests, browser storage, and
   external access.
 - **Evidence:** `npm audit` reports no vulnerabilities. The type check, the 448 unit tests, the
@@ -329,10 +347,11 @@ One record per change; complete details and evidence are below. Older work dates
 - **What was reported:** one medium advisory against the lockfile. undici 7.29.0 let a WebSocket
   server crash the whole Node.js process with a compressed message that passes the decompression
   size limit and then carries a malformed block (GHSA-3wwx-pv8p-q78v, CVE-2026-85024).
-- **Where it comes from:** `cheerio` 1.2.0 is the only package that depends on undici, through the
-  range `^7.19.0`. Cheerio uses undici's HTTP client only in `fromURL`, which this project never
-  calls: the project's own fetcher downloads every page and hands the HTML to `cheerio.load`.
-  Nothing in the project opens a WebSocket, so the crash was not reachable here.
+- **Where it comes from:**
+  - `cheerio` 1.2.0 is the only package that depends on undici, through the range `^7.19.0`.
+  - Cheerio uses undici's HTTP client only in `fromURL`, which this project never calls: the
+    project's own fetcher downloads every page and hands the HTML to `cheerio.load`.
+  - Nothing in the project opens a WebSocket, so the crash was not reachable here.
 - **Fix:** the lockfile pins undici 7.29.1, the first patched 7.x release and within cheerio's
   range. The manifest is unchanged and no other package moves.
 - **Unchanged:** `agentRules: false`, application behavior, model requests, browser storage, and
@@ -348,38 +367,43 @@ One record per change; complete details and evidence are below. Older work dates
 
 ### Shared page parsing and error-page handling — 2026-09-26
 
-- **Error pages:** the secure fetcher now treats any status of 400 or above as a failure. Before,
-  the text of a 404 or 500 page could reach the analysis workers as company evidence; now a failed
-  homepage stops the audit through the existing error path, and a failed subpage is simply absent
-  from the briefing. Temporary statuses (408, 429 and the 5xx family) are still retried, honouring
-  `Retry-After`.
+- **Error pages:**
+  - the secure fetcher now treats any status of 400 or above as a failure.
+  - Before, the text of a 404 or 500 page could reach the analysis workers as company evidence; now
+    a failed homepage stops the audit through the existing error path, and a failed subpage is
+    simply absent from the briefing.
+  - Temporary statuses (408, 429 and the 5xx family) are still retried, honouring `Retry-After`.
 - **Neutral Competitive Position:** when no product has been mentioned, the composite scorer sets
   Competitive Position to the neutral 50 itself instead of relying on the worker to do so, and the
   synthesis writer is given the same effective scores the breakdown table shows.
-- **One parse per page:** the homepage and each subpage are parsed once and handed to the
-  extractor, the contact finder, and the text converter in that order, instead of being parsed
-  three times. The pricing-page detector and subpage discovery share one word list, so the
-  "has pricing page" flag and the fetched pricing page can no longer disagree.
+- **One parse per page:**
+  - the homepage and each subpage are parsed once and handed to the extractor, the contact finder,
+    and the text converter in that order, instead of being parsed three times.
+  - The pricing-page detector and subpage discovery share one word list, so the "has pricing page"
+    flag and the fetched pricing page can no longer disagree.
 - **Consistent labels:** scores are keyed by category and their display names come from the same
   translation table the progress log uses; the match cards' English fallbacks and the audit request
   a card sends come from that table too, and a company URL containing `$&` is no longer mangled in
   that request.
-- **Shared definitions:** the progress phases, worker states, skill names, and chat-history turn
-  shape each have one definition in the schemas, and the worker-progress templates are keyed by
-  that status list; the product-context prompt markers and the shared evidence rules live in the
-  constants module; the match stages consume one request object instead of nine positional
-  arguments; the company-URL rules have their own module; the retry helpers no longer import the
-  model adapter, which owns its own retry policy; the router node's retry budget and failure
-  classification are read from that one policy; and the adapter no longer carries a second
-  request timeout beside the app's own deadline.
+- **Shared definitions:**
+  - the progress phases, worker states, skill names, and chat-history turn shape each have one
+    definition in the schemas, and the worker-progress templates are keyed by that status list;
+    - the product-context prompt markers and the shared evidence rules live in the constants module;
+    - the match stages consume one request object instead of nine positional arguments;
+    - the company-URL rules have their own module;
+    - the retry helpers no longer import the model adapter, which owns its own retry policy;
+    - the router node's retry budget and failure classification are read from that one policy;
+    - and the adapter no longer carries a second request timeout beside the app's own deadline.
 - **Social links:** a LinkedIn or social href written with a capitalised scheme (`HTTPS://…`) was
   turned into `https://HTTPS://…` in the report; the scheme is now recognised in any case.
 - **Removed:** the unused workflow statuses, the per-worker weight copies (the prompts now quote
   the scorer's weights), the separate score-label module, and JSON-mode plumbing no call used.
-- **Tests:** new tests cover the backoff and abort helpers, the shared-document contract between
-  the extractors, the company-URL rules, error-status handling, the neutral Competitive Position
-  rule, the match request object, and capitalised social-link schemes. 448 unit tests, the
-  coverage gate, the type check, the production build, and the 57 end-to-end runs pass.
+- **Tests:**
+  - new tests cover the backoff and abort helpers, the shared-document contract between the
+    extractors, the company-URL rules, error-status handling, the neutral Competitive Position rule,
+    the match request object, and capitalised social-link schemes.
+  - 448 unit tests, the coverage gate, the type check, the production build, and the 57 end-to-end
+    runs pass.
 - **Coverage floors:** raised to what the suite now measures, as the ratchet rule requires: 85%
   of statements and 84% of branches overall, 95% of statements in `src/lib`, 92% in `extract`,
   100% in `scoring`, 97% in `skills` and the chat endpoint, and 66% of branches in `workflow`.
@@ -408,12 +432,14 @@ One record per change; complete details and evidence are below. Older work dates
 
 - **Gap:** no unit test covered what prospect scoring does when an analysis worker fails, although
   a provider error or a rejected response can leave any of the five without a result.
-- **Tests:** three cases in `src/lib/agent/orchestrator.test.ts`. One failed worker scores its
-  category at the neutral 50, marks it degraded, keeps the other four, and lowers confidence from
-  High to Medium. A failed Opportunity Scoring worker leaves Need and Timeline to page evidence and
-  lowers MEDDIC completeness, since its hiring and pain signals never arrive. With all five failed,
-  the composite is a neutral 50, grade C, at Very Low confidence, while Budget still comes from the
-  pricing page.
+- **Tests:**
+  - three cases in `src/lib/agent/orchestrator.test.ts`.
+  - One failed worker scores its category at the neutral 50, marks it degraded, keeps the other
+    four, and lowers confidence from High to Medium.
+  - A failed Opportunity Scoring worker leaves Need and Timeline to page evidence and lowers MEDDIC
+    completeness, since its hiring and pain signals never arrive.
+  - With all five failed, the composite is a neutral 50, grade C, at Very Low confidence, while
+    Budget still comes from the pricing page.
 - **Behavior:** unchanged. The tests pin what a failed worker already did, and each fails when a
   failed worker is instead scored as 0.
 - **Evidence:** 397 unit tests and the coverage gate pass; the type check is clean.
@@ -424,25 +450,32 @@ One record per change; complete details and evidence are below. Older work dates
 
 ### Dependency advisories cleared — 2026-09-23
 
-- **What was reported:** five open advisories against the lockfile. Next.js 16.3.2 carried two
-  critical ones: unauthenticated remote code execution through the image optimization API when AVIF
-  files are used (GHSA-2xp9-vwfh-vxw4), and remote code execution on Windows-hosted servers
-  (GHSA-p293-qw3h-jr36). sharp 0.35.3 carried a high one in its bundled libheif
-  (GHSA-rgj7-g3m4-5g8c). Vitest and `@vitest/mocker` 3.2.7 carried a medium path traversal through
-  a redirect mock (GHSA-82fw-gwwq-j7x9).
-- **Fix:** each moves to its first patched release: `next` 16.3.3; `sharp` 0.35.4 with libvips
-  1.3.3, within the range Next.js already declares; and `vitest` with `@vitest/coverage-v8` 4.1.11.
-  The manifest keeps its caret ranges, and the lockfile pins those versions. No Vitest 3 release
-  carries the fix, so this is a major upgrade: Vite moves from 7 to 8 underneath it, and 113
-  packages only Vitest 3 used leave the lockfile, including the deprecated `glob` 10.
-- **Coverage floors:** Vitest 4 reads branches from the syntax tree, so every `??`, `?.`, implicit
-  `else`, and default value now counts, including those in functions no unit test runs. The same
-  tests therefore measure lower: overall branches 82% instead of 91%, and the workflow scope 52%
-  instead of 98%, where every missed branch sits in a node body that calls the graph runtime and the
-  model. The failing floors were set to the new measurements — overall branches 82 and functions 78,
-  `src/lib/*.ts` statements 94 and branches 80, workflow branches 52 — and the others are unchanged.
-  The finer count also shows one untested path: the orchestrator's handling of an analysis worker
-  that failed.
+- **What was reported:**
+  - five open advisories against the lockfile.
+  - Next.js 16.3.2 carried two critical ones: unauthenticated remote code execution through the
+    image optimization API when AVIF files are used (GHSA-2xp9-vwfh-vxw4), and remote code execution
+    on Windows-hosted servers (GHSA-p293-qw3h-jr36). sharp 0.35.3 carried a high one in its bundled
+    libheif (GHSA-rgj7-g3m4-5g8c).
+  - Vitest and `@vitest/mocker` 3.2.7 carried a medium path traversal through a redirect mock
+    (GHSA-82fw-gwwq-j7x9).
+- **Fix:**
+  - each moves to its first patched release: `next` 16.3.3; `sharp` 0.35.4 with libvips 1.3.3,
+    within the range Next.js already declares; and `vitest` with `@vitest/coverage-v8` 4.1.11.
+  - The manifest keeps its caret ranges, and the lockfile pins those versions.
+  - No Vitest 3 release carries the fix, so this is a major upgrade: Vite moves from 7 to 8
+    underneath it, and 113 packages only Vitest 3 used leave the lockfile, including the deprecated
+    `glob` 10.
+- **Coverage floors:**
+  - Vitest 4 reads branches from the syntax tree, so every `??`, `?.`, implicit `else`, and default
+    value now counts, including those in functions no unit test runs.
+  - The same tests therefore measure lower: overall branches 82% instead of 91%, and the workflow
+    scope 52% instead of 98%, where every missed branch sits in a node body that calls the graph
+    runtime and the model.
+  - The failing floors were set to the new measurements — overall branches 82 and functions 78,
+    `src/lib/*.ts` statements 94 and branches 80, workflow branches 52 — and the others are
+    unchanged.
+  - The finer count also shows one untested path: the orchestrator's handling of an analysis worker
+    that failed.
 - **Installing:** `npm ci` works with npm 10 and 11. Changing dependencies with npm 10.9.8 fails
   while it resolves Vitest 4's optional peers ("Cannot read properties of null"), so this lockfile
   was updated with npm 11.
@@ -553,9 +586,13 @@ Local documentation update; initially delivered uncommitted and recorded in `3a5
 - Cross-page contact deduplication used a weaker key than the extractor that produces the contacts - `findContacts` collapses whitespace before comparing names, while the orchestrator compared `name.toLowerCase()` alone, so one person listed as "Jane  Doe" on the team page and "Jane Doe" on the about page reached the decision-maker table twice;
 
 - both levels now share the one exported key.
-- The strict-index-checking record below had misstated every branch figure it quoted: re-measured at the commit before the flag and at the commit that added it, covered branches rose from 931 of 1,020 to 934 of 1,028, not from 929 of 1,017 to 933 of 1,027, and those numbers are corrected in place.
+- The strict-index-checking record below had misstated every branch figure it quoted:
+  - re-measured at the commit before the flag and at the commit that added it, covered branches rose from 931 of 1,020 to 934 of 1,028, not from 929 of 1,017 to 933 of 1,027,
+  - and those numbers are corrected in place.
 
-- Two duplications were removed - the end-to-end harness re-declared three localStorage keys `constants.ts` already exports, so a rename would have desynced the suite from the app silently, and the router tests carried a second `resolveCompanyUrl` block duplicating two cases a later block already covered, together with the stub helper that existed only to serve it.
+- Two duplications were removed -
+  - the end-to-end harness re-declared three localStorage keys `constants.ts` already exports, so a rename would have desynced the suite from the app silently,
+  - and the router tests carried a second `resolveCompanyUrl` block duplicating two cases a later block already covered, together with the stub helper that existed only to serve it.
 
 - Three documentation blocks describing exported label constants had been stranded above interfaces introduced beside them, leaving each constant undocumented, and `normalizeName` documented only half of what its body does now that it is public.
 
@@ -616,7 +653,10 @@ Local documentation update; initially delivered uncommitted and recorded in `3a5
 
 Pointing the suite at `localhost` fixed it, and the suite now builds and serves the production app instead of the dev server, so no dev-only guard is in play at all.
 
-- Running the specs then exposed a real defect: settings were persisted from an effect that ran on mount before the stored values had loaded, so every page load wrote the empty defaults over the saved record and React's development double-invoke made the loss permanent - a stored API key was erased on reload.
+- Running the specs then exposed a real defect:
+  - settings were persisted from an effect that ran on mount before the stored values had loaded,
+  - so every page load wrote the empty defaults over the saved record and React's development double-invoke made the loss permanent -
+  - a stored API key was erased on reload.
 
 - Settings are now written where the user actually edits them, and nothing is written before an edit.
 - Grew the suite to 19 specs across Chromium, Firefox, and WebKit (57 runs) covering the settings dialog and key isolation, conversation history through real IndexedDB, candidate cards and the follow-up audit they trigger, the stop control, and a phone viewport;
@@ -641,10 +681,13 @@ The endpoint went from 36% to 97% of statements and 29% to 88% of branches, the 
 - overall statement coverage is 82%.
 - Closed the last untested decisions, in the standalone skill's discovery briefing: every fallback for a field the site does not publish was unexercised, so nothing checked the promise the skill's own prompt makes - that unverifiable data is marked rather than guessed.
 
-- Three tests now drive a page that publishes nothing and a contact carrying a LinkedIn but no job title, asserting the briefing reads "Not publicly available", "none found", and "title unknown" instead of leaking undefined, and that the report title falls back to the page URL when the company is never named.
+- Three tests now drive a page that publishes nothing and a contact carrying a LinkedIn but no job title,
+  - asserting the briefing reads "Not publicly available", "none found", and "title unknown" instead of leaking undefined,
+  - and that the report title falls back to the page URL when the company is never named.
 
 - That file reached 100% of statements, branches, and functions.
-- The coverage floors were also re-grounded: they had been justified against an external 80% target that this repository does not adopt, and now state plainly that they are a regression ratchet, with AGENTS.md's per-behaviour success criteria as the actual standard. 343 unit tests, 57 end-to-end runs, typecheck, and the production build pass;
+- The coverage floors were also re-grounded: they had been justified against an external 80% target that this repository does not adopt, and now state plainly that they are a regression ratchet, with AGENTS.md's per-behaviour success criteria as the actual standard.
+  - 343 unit tests, 57 end-to-end runs, typecheck, and the production build pass;
 
 - branch coverage is 90%.
 - A final sweep closed the untested decisions in the six files where branch coverage still lagged, after an earlier claim that every decision was exercised proved wrong: 104 branches were unreached.
@@ -653,7 +696,10 @@ The endpoint went from 36% to 97% of statements and 29% to 88% of branches, the 
 
 - The router's company-URL filter, quoting, "unknown" answer and provider-failure path, the report renderers' location and truncation variants, the prospect report's missing-company, no-contacts, failed-subagent and untranslatable-category fallbacks, the retry helper's no-signal paths, and the provider error classifier's status, cancellation and structured-output branches are all now covered.
 
-- Two dead defensive branches were identified rather than tested around: the SSE reader's frame-buffer fallback cannot be reached because a split always yields an element, and the delay helper's already-aborted check cannot be reached because its guard throws first - and that guard throws synchronously from a function typed as returning a promise, which the tests now record.
+- Two dead defensive branches were identified rather than tested around:
+  - the SSE reader's frame-buffer fallback cannot be reached because a split always yields an element,
+  - and the delay helper's already-aborted check cannot be reached because its guard throws first -
+  - and that guard throws synchronously from a function typed as returning a promise, which the tests now record.
 
 Branch coverage rose from 90% to 91% overall with every targeted file above 87%, on 393 unit tests.
 
@@ -686,7 +732,10 @@ This documentation commit
 - Restricted the page fetcher to ports 80 and 443 on the initial URL and every redirect hop, closing an arbitrary-port probe against public hosts.
 
 - Made the report schema the single definition of its shape and validated the report event at the wire boundary instead of casting it.
-- Replaced every unchecked type assertion on nullable or external data: graph-stage reads now fail loudly and name the broken ordering, the agent status and skill name narrow instead of asserting, and settings restored from browser storage are validated field by field before the API key they carry is sent as a request header.
+- Replaced every unchecked type assertion on nullable or external data:
+  - graph-stage reads now fail loudly and name the broken ordering,
+  - the agent status and skill name narrow instead of asserting,
+  - and settings restored from browser storage are validated field by field before the API key they carry is sent as a request header.
 
 Corrected MEDDIC so a distant contract renewal reads as looked-for-and-absent rather than as evidence. Bounded extracted emails and the briefing sent to the five parallel workers.
 
@@ -696,14 +745,21 @@ Corrected MEDDIC so a distant contract renewal reads as looked-for-and-absent ra
 - Corrected a protocol-relative LinkedIn href that rendered as a malformed four-slash URL in the decision-maker table, matching the handling the homepage extractor already had.
 - Completed 36 missing JSDoc blocks, named the three buying-role patterns alongside the file's other patterns, removed an unreachable fallback, replaced duplicated literals with named constants, removed an unused catch binding, corrected a stale comment, and aligned the root layout with project style.
 
-- Added request rate limiting to the chat endpoint, moved the stored API key into its own browser record so nothing that reads or exports the settings can carry the credential with it, migrated any key already saved in the previous combined record, moved settings persistence out of the page into a testable module, made nine internal symbols private, named the remaining scoring thresholds, and added unit tests for eleven previously untested logic modules.
+- Added request rate limiting to the chat endpoint,
+  - moved the stored API key into its own browser record so nothing that reads or exports the settings can carry the credential with it,
+  - migrated any key already saved in the previous combined record,
+  - moved settings persistence out of the page into a testable module,
+  - made nine internal symbols private,
+  - named the remaining scoring thresholds,
+  - and added unit tests for eleven previously untested logic modules.
 
 - Shared the absolute-URL rule, the JSON-LD node scan, routed-target resolution, and the per-worker progress emitter that had each been written twice;
 
 - centralized the remaining SSE phase names and scoring thresholds; and collected page anchors once instead of three times per analysis.
 - Added coverage measurement and an end-to-end suite: installed a version-matched coverage provider, scoped it to code that holds logic, and closed the one real gap it exposed by testing the standalone skill runner, which had no coverage at all.
 
-- Added Playwright with six specs covering the empty state, the missing-key guard, token streaming, report rendering, server-error recovery, and proof that the stored settings record never contains the API key. 257 tests, typecheck, and the production build pass; measured coverage is 75% of statements overall and 93% across the logic-bearing library modules.
+- Added Playwright with six specs covering the empty state, the missing-key guard, token streaming, report rendering, server-error recovery, and proof that the stored settings record never contains the API key.
+  - 257 tests, typecheck, and the production build pass; measured coverage is 75% of statements overall and 93% across the logic-bearing library modules.
 
 **Evidence and delivery status**
 
@@ -903,11 +959,12 @@ Git reconciliation: Shared label merging; fed evidenced subagent signals into de
   reply failed before any text streamed in.
 
 - Consolidated duplicated JSON-extraction logic into shared helpers, named constants, and a shared
-  prop-type interface. Git reconciliation: Introduced the
-  standalone BYOK prospect-audit application and four research skills. Switched the default provider
-  to DeepSeek and repaired settings/sidebar behavior. Hardened the initial pipeline and JSON
-  extraction, added focused coverage, and detected selling context from the conversation for scoring
-  and reports.
+  prop-type interface.
+  - Git reconciliation: Introduced the standalone BYOK prospect-audit application and four research
+    skills.
+  - Switched the default provider to DeepSeek and repaired settings/sidebar behavior.
+  - Hardened the initial pipeline and JSON extraction, added focused coverage, and detected selling
+    context from the conversation for scoring and reports.
 
 **Evidence and delivery status**
 
