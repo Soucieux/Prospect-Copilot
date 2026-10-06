@@ -28,6 +28,11 @@ npm install
 npm run dev        # http://localhost:3000
 ```
 
+- `npm test` runs the Vitest unit tests once; `npm run test:coverage` adds a V8 coverage report.
+- `npm run typecheck` runs the TypeScript compiler over the project without emitting files.
+- `npm run e2e` runs the Playwright specs under `e2e/` against a production build Playwright starts
+  itself.
+
 Open the page, paste your DeepSeek API key into the settings bar (base URL and model are pre-filled), and try:
 
 ```
@@ -220,6 +225,15 @@ compare Acme Corp, Globex, and Initech
 | ipaddr.js | Classifies resolved IP addresses for outbound-request safety checks. |
 | Server-side request forgery (SSRF) protection | Validates public destinations and redirects before fetching page evidence, with bounded worker pools. |
 
+### Build & Delivery
+
+| Technology or concept | Use in this project |
+|---|---|
+| Next.js build | `npm run build` compiles the App Router page and the `/api/chat` route; `npm run start` serves the result. |
+| Vitest | Runs the unit tests beside the modules in `src/` for `npm test`, with V8 coverage on request. |
+| Playwright | Drives the five end-to-end specs under `e2e/`, covering chat, conversations, match, settings and the responsive layout, against a production build it starts. |
+| TypeScript compiler | `npm run typecheck` checks the whole project without emitting files. |
+
 Answers use fetched page evidence; no local embedding model or vector database is maintained.
 
 Each row covers one technology or concept within its category and describes that item's
@@ -237,6 +251,10 @@ project-specific role, read from the current source and dependency manifest.
 | `src/lib/skills/` | The five subagent definitions, the four standalone skills, and the match pipeline. |
 | `src/lib/storage/` | Browser IndexedDB persistence for conversations and reports. |
 | `Resources/` | Full-size project icon master, kept outside `src/app/` so Next.js does not serve it. |
+| `e2e/` | The Playwright end-to-end specs and their support helpers. |
+| `docs/` | The design reference and the implementation plan. |
+| `CONTRIBUTING.md` | Contribution and numbering rules for the public mirror. |
+| `CHANGELOG.md` | The complete change history. |
 
 Business rules live in `scoring/` and `extract/`, never in a prompt: the model supplies evidenced facts and deterministic TypeScript does every calculation.
 
@@ -280,6 +298,7 @@ One record per change; complete details and evidence are in [CHANGELOG.md](CHANG
 
 | Record | Date | Highlights | Details |
 |---|---|---|---|
+| Documentation | 2026-10-06 | <ul><li><strong>Audit:</strong> The test tooling gained a Build & Delivery table and its commands in Quick start, and the structure table lists <code>e2e/</code>, <code>docs/</code>, the contributor guide and the changelog.</li></ul> | [Full record](CHANGELOG.md#readme-source-audit) |
 | Documentation | 2026-10-06 | <ul><li><strong>History:</strong> The complete change history now lives in <code>CHANGELOG.md</code>, one entry per change with its summary, what changed, what was checked and how it was delivered; the README table keeps the newest ten rows and opens each entry from its Details cell.</li></ul> | [Full record](CHANGELOG.md#changelog) |
 | Documentation | 2026-10-05 | <ul><li><strong>Cleanup:</strong> Removed the three implemented plan documents under <code>docs/plans/</code>, which nothing linked to; the design document and the implementation plan stay.</li></ul> | [Full record](CHANGELOG.md#plan-documents-removed) |
 | Documentation | 2026-10-05 | <ul><li><strong>Alignment:</strong> The badge row now opens with the platform and names the history mode; the four capability bullets left the Overview for a Capabilities section.</li></ul> | [Full record](CHANGELOG.md#readme-alignment) |
@@ -289,7 +308,6 @@ One record per change; complete details and evidence are in [CHANGELOG.md](CHANG
 | Maintenance | 2026-09-30 | <ul><li><strong>Security:</strong> Cleared the medium advisory GitHub reported against undici, the HTTP client cheerio depends on: a hostile WebSocket server could crash the Node.js process.</li><li><strong>Version:</strong> undici 7.29.1, within the range cheerio declares; no other package moves.</li><li><strong>Exposure:</strong> None found: the app hands cheerio HTML it fetched itself and never opens a WebSocket.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](CHANGELOG.md#undici-advisory-cleared) |
 | Maintenance | 2026-09-26 | <ul><li><strong>Reliability:</strong> An error page (404, 500, and the like) is no longer read as company evidence; a page that fails is left out of the briefing.</li><li><strong>Scoring:</strong> Competitive Position stays at the neutral 50 until you say what you sell, decided in code rather than left to the model, and the synthesis reads the same scores the report table shows.</li><li><strong>Structure:</strong> Each fetched page is parsed once and shared by every extractor; one definition names the progress phases, worker states and skill names; scoring is keyed by category so translations cannot drift; the match stages share one request object; the retry helpers no longer depend on the model adapter.</li><li><strong>Social links:</strong> A LinkedIn or social link written with a capitalised scheme is no longer mangled in the report.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](CHANGELOG.md#shared-page-parse-and-error-pages) |
 | Maintenance | 2026-09-26 | <ul><li><strong>Icon:</strong> Redrew the project icon in the macOS icon shape at the standard size; the icon Next.js serves and the project folder's icon come from the same master.</li></ul> | [Full record](CHANGELOG.md#aligned-project-icon) |
-| Maintenance | 2026-09-23 | <ul><li><strong>Tests:</strong> Prospect scoring is now tested when analysis workers fail: any one of them, the one that reports hiring and pain signals, or all five.</li><li><strong>Behavior:</strong> Unchanged; the tests pin what a failed worker already did.</li></ul> | [Full record](CHANGELOG.md#failed-worker-scoring-tests) |
 ---
 
 <!-- project-control:section=ignore -->

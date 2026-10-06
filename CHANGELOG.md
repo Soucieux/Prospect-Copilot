@@ -2,6 +2,20 @@
 
 Every change to Prospect Copilot, newest first, in one shape: the summary from the history table, then what changed, what was checked and how it was delivered. The README's Change history table lists the newest 10 and links here.
 
+<a id="readme-source-audit"></a>
+
+## README checked against the source — 2026-10-06
+
+- **Audit:** The test tooling gained a Build & Delivery table and its commands in Quick start, and the structure table lists `e2e/`, `docs/`, the contributor guide and the changelog.
+
+### Changed
+
+- **Why:** a check of the README against the source found Vitest, Playwright and the type check unmentioned, and four folder entries missing from the structure table.
+- **Quick start:** `npm test`, `npm run test:coverage`, `npm run typecheck` and `npm run e2e` are described.
+- **Architecture:** a Build & Delivery table for the Next.js build, Vitest, Playwright and the TypeScript compiler.
+- **Structure:** `e2e/`, `docs/`, `CONTRIBUTING.md` and `CHANGELOG.md` join the table.
+- **Scope:** Documentation only.
+
 <a id="changelog"></a>
 
 ## Documentation — 2026-10-06
