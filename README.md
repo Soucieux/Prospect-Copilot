@@ -1,20 +1,23 @@
 # Prospect Copilot
 
-![Next.js](https://img.shields.io/badge/Next.js-16-black) ![React](https://img.shields.io/badge/React-19-blue) ![Node](https://img.shields.io/badge/Node-20%2B-brightgreen) ![Models](https://img.shields.io/badge/Models-OpenAI--compatible-orange)
+![Platform](https://img.shields.io/badge/Platform-Web%20app-blue) ![Next.js](https://img.shields.io/badge/Next.js-16-orange) ![History](https://img.shields.io/badge/History-dated-9f9f9f) ![React](https://img.shields.io/badge/React-19-61dafb) ![Node](https://img.shields.io/badge/Node-20%2B-brightgreen) ![Models](https://img.shields.io/badge/Models-OpenAI--compatible-9f9f9f)
 
-[Overview](#overview) · [Quick start](#quick-start) · [Workflow](#workflow) · [Architecture](#architecture) · [Project structure](#project-structure) · [Limits](#limits) · [References](#references) · [Contributing](#contributing) · [Change history](#change-history)
+[Overview](#overview) · [Capabilities](#capabilities) · [Quick start](#quick-start) · [Workflow](#workflow) · [Architecture](#architecture) · [Project structure](#project-structure) · [Limits](#limits) · [References](#references) · [Contributing](#contributing) · [Change history](#change-history)
 
 <!-- project-control:section=overview -->
 ## Overview
 
 Prospect Copilot is a multilingual chat app for sales research and product sourcing.
 
+- **Origin:** A standalone TypeScript rewrite of [`zubair-trabzada/ai-sales-team-claude`](https://github.com/zubair-trabzada/ai-sales-team-claude). [Architecture](#architecture) explains Next.js, LangGraph, and LangChain.
+
+<!-- project-control:section=overview -->
+## Capabilities
+
 - **Prospects:** Research companies, qualify opportunities, find decision makers, and draft outreach.
 - **Products:** Find and rank likely buyers or sellers.
 - **Results:** Read evidence-backed reports and retained conversation cards; stop an active request when needed.
 - **Models:** Use your key with an approved OpenAI-compatible endpoint. The default is DeepSeek at `https://api.deepseek.com`, model `deepseek-chat`.
-
-- **Origin:** A standalone TypeScript rewrite of [`zubair-trabzada/ai-sales-team-claude`](https://github.com/zubair-trabzada/ai-sales-team-claude). [Architecture](#architecture) explains Next.js, LangGraph, and LangChain.
 
 ## Quick start
 
@@ -277,6 +280,7 @@ One record per change; complete details and evidence are below. Older work dates
 
 | Record | Date | Highlights | Details |
 |---|---|---|---|
+| Documentation | 2026-10-05 | <ul><li><strong>Alignment:</strong> The badge row now opens with the platform and names the history mode; the four capability bullets left the Overview for a Capabilities section.</li></ul> | [Full record](#readme-alignment) |
 | Documentation | 2026-10-05 | <ul><li><strong>Structure:</strong> Sections follow the order and names every project README now shares, under a contents line; sections were renamed and moved, and no wording was removed.</li></ul> | [Full record](#readme-skeleton) |
 | Documentation | 2026-10-05 | <ul><li><strong>Readability:</strong> Long paragraphs, bullets and table cells are now short leads with sub-points, one fact each; no detail was removed.</li></ul> | [Full record](#readme-structure) |
 | Maintenance | 2026-09-30 | <ul><li><strong>Security:</strong> Cleared a critical Next.js advisory published on 2026-09-30: image generation through `next/og` could run attacker-supplied code.</li><li><strong>Version:</strong> Next.js 16.3.6; no other package moves.</li><li><strong>Exposure:</strong> None found: the app does not use `next/og`.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](#next-og-advisory-cleared) |
@@ -306,6 +310,18 @@ One record per change; complete details and evidence are below. Older work dates
 
 <details>
 <summary>Full records for this table</summary>
+
+<a id="readme-alignment"></a>
+
+### README aligned with the other projects — 2026-10-05
+
+- **Why:** every project README shares one structure; this one still lacked part of it.
+- **Badges:** Platform, Next.js, History, React, Node and Models.
+- **Capabilities:** the Prospects, Products, Results and Models bullets moved here from the Overview, which keeps the describing sentence and the origin.
+- **Unchanged:** every sentence inside the sections that stayed; links to a moved part were updated.
+- **Scope:** Documentation only.
+
+[Back to change history](#change-history)
 
 <a id="readme-skeleton"></a>
 
