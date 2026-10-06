@@ -255,6 +255,7 @@ project-specific role, read from the current source and dependency manifest.
 | `docs/` | The design reference and the implementation plan. |
 | `CONTRIBUTING.md` | Contribution and numbering rules for the public mirror. |
 | `CHANGELOG.md` | The complete change history. |
+| `CHANGELOG.svg` | The history strip drawn from the changelog. |
 
 Business rules live in `scoring/` and `extract/`, never in a prompt: the model supplies evidenced facts and deterministic TypeScript does every calculation.
 
@@ -289,6 +290,8 @@ For source changes, follow the [Prospect Copilot contribution guide](CONTRIBUTIN
 <!-- project-control:section=history -->
 ## Change history
 
+![Changelog history, Aug – Oct 2026: 32 entries; busiest September 2026 (17); no releases yet.](CHANGELOG.svg)
+
 **Change-history numbering:** This project uses dated history and does not assign project-level
 version or build numbers. Follow the [version and build policy](CONTRIBUTING.md#version-and-build-policy).
 
@@ -298,6 +301,7 @@ One record per change; complete details and evidence are in [CHANGELOG.md](CHANG
 
 | Record | Date | Highlights | Details |
 |---|---|---|---|
+| Documentation | 2026-10-06 | <ul><li><strong>Changelog:</strong> The README's Change history opens with a history strip, <code>CHANGELOG.svg</code>, drawn from the changelog: the entries of every period as shaded cells, release months marked, and the span, total and version range beside them.</li></ul> | [Full record](CHANGELOG.md#history-strip) |
 | Documentation | 2026-10-06 | <ul><li><strong>Layout:</strong> The line of section links under the title now holds three quick links, Quick start, Architecture and Change history, in place of one for every section; the outline of the whole README is the one GitHub, Obsidian and Project Control provide.</li></ul> | [Full record](CHANGELOG.md#three-quick-links) |
 | Documentation | 2026-10-06 | <ul><li><strong>Audit:</strong> The test tooling gained a Build & Delivery table and its commands in Quick start, and the structure table lists <code>e2e/</code>, <code>docs/</code>, the contributor guide and the changelog.</li></ul> | [Full record](CHANGELOG.md#readme-source-audit) |
 | Documentation | 2026-10-06 | <ul><li><strong>History:</strong> The complete change history now lives in <code>CHANGELOG.md</code>, one entry per change with its summary, what changed, what was checked and how it was delivered; the README table keeps the newest ten rows and opens each entry from its Details cell.</li></ul> | [Full record](CHANGELOG.md#changelog) |
@@ -307,7 +311,6 @@ One record per change; complete details and evidence are in [CHANGELOG.md](CHANG
 | Documentation | 2026-10-05 | <ul><li><strong>Readability:</strong> Long paragraphs, bullets and table cells are now short leads with sub-points, one fact each; no detail was removed.</li></ul> | [Full record](CHANGELOG.md#readme-structure) |
 | Maintenance | 2026-09-30 | <ul><li><strong>Security:</strong> Cleared a critical Next.js advisory published on 2026-09-30: image generation through `next/og` could run attacker-supplied code.</li><li><strong>Version:</strong> Next.js 16.3.6; no other package moves.</li><li><strong>Exposure:</strong> None found: the app does not use `next/og`.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](CHANGELOG.md#next-og-advisory-cleared) |
 | Maintenance | 2026-09-30 | <ul><li><strong>Security:</strong> Cleared the medium advisory GitHub reported against undici, the HTTP client cheerio depends on: a hostile WebSocket server could crash the Node.js process.</li><li><strong>Version:</strong> undici 7.29.1, within the range cheerio declares; no other package moves.</li><li><strong>Exposure:</strong> None found: the app hands cheerio HTML it fetched itself and never opens a WebSocket.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](CHANGELOG.md#undici-advisory-cleared) |
-| Maintenance | 2026-09-26 | <ul><li><strong>Reliability:</strong> An error page (404, 500, and the like) is no longer read as company evidence; a page that fails is left out of the briefing.</li><li><strong>Scoring:</strong> Competitive Position stays at the neutral 50 until you say what you sell, decided in code rather than left to the model, and the synthesis reads the same scores the report table shows.</li><li><strong>Structure:</strong> Each fetched page is parsed once and shared by every extractor; one definition names the progress phases, worker states and skill names; scoring is keyed by category so translations cannot drift; the match stages share one request object; the retry helpers no longer depend on the model adapter.</li><li><strong>Social links:</strong> A LinkedIn or social link written with a capitalised scheme is no longer mangled in the report.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](CHANGELOG.md#shared-page-parse-and-error-pages) |
 ---
 
 <!-- project-control:section=ignore -->

@@ -2,6 +2,24 @@
 
 Every change to Prospect Copilot, newest first, in one shape: the summary from the history table, then what changed, what was checked and how it was delivered. The README's Change history table lists the newest 10 and links here.
 
+<a id="history-strip"></a>
+
+## History strip — 2026-10-06
+
+- **Changelog:** The README's Change history opens with a history strip, `CHANGELOG.svg`, drawn from the changelog: the entries of every period as shaded cells, release months marked, and the span, total and version range beside them.
+
+### Added
+
+- **Strip:** a light card under the Change history heading shows how the entries spread over time.
+  - One cell per period: the years before the last twelve months, then each month, shaded by how many entries it holds; an empty cell is a quiet month.
+  - An orange pill under a month with releases carries how many it had, its latest version beneath, and a summary gives the span, the total and the version range.
+- **Alternative text:** the image line states the span, the total, the busiest period, the longest quiet stretch and the version range, so the strip reads without the picture.
+
+### Changed
+
+- **Structure:** `CHANGELOG.svg` joins the structure table.
+- **Scope:** Documentation only; the strip and its image line are generated, never edited by hand.
+
 <a id="three-quick-links"></a>
 
 ## Three quick links — 2026-10-06
