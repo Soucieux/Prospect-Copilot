@@ -280,6 +280,7 @@ One record per change; complete details and evidence are below. Older work dates
 
 | Record | Date | Highlights | Details |
 |---|---|---|---|
+| Documentation | 2026-10-05 | <ul><li><strong>Cleanup:</strong> Removed the three implemented plan documents under <code>docs/plans/</code>, which nothing linked to; the design document and the implementation plan stay.</li></ul> | [Full record](#plan-documents-removed) |
 | Documentation | 2026-10-05 | <ul><li><strong>Alignment:</strong> The badge row now opens with the platform and names the history mode; the four capability bullets left the Overview for a Capabilities section.</li></ul> | [Full record](#readme-alignment) |
 | Documentation | 2026-10-05 | <ul><li><strong>Structure:</strong> Sections follow the order and names every project README now shares, under a contents line; sections were renamed and moved, and no wording was removed.</li></ul> | [Full record](#readme-skeleton) |
 | Documentation | 2026-10-05 | <ul><li><strong>Readability:</strong> Long paragraphs, bullets and table cells are now short leads with sub-points, one fact each; no detail was removed.</li></ul> | [Full record](#readme-structure) |
@@ -310,6 +311,20 @@ One record per change; complete details and evidence are below. Older work dates
 
 <details>
 <summary>Full records for this table</summary>
+
+<a id="plan-documents-removed"></a>
+
+### Plan documents removed — 2026-10-05
+
+- **Why:** the three plans under `docs/plans/`, dated 21 to 23 August 2026, were implemented and nothing in the
+  project linked to them any more.
+- **Removed:** `2026-08-21-selling-context-auto-detect.md`, `2026-08-22-product-match-discovery.md` and
+  `2026-08-23-langgraph-workflow-reliability-design.md`; Git history keeps them.
+- **Kept:** `docs/ai-sales-team-claude-design.md` and `docs/implementation-plan.md`, which the README and the plan
+  link to.
+- **Scope:** Documentation only.
+
+[Back to change history](#change-history)
 
 <a id="readme-alignment"></a>
 
