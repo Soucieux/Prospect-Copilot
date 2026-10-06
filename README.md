@@ -2,6 +2,8 @@
 
 ![Next.js](https://img.shields.io/badge/Next.js-16-black) ![React](https://img.shields.io/badge/React-19-blue) ![Node](https://img.shields.io/badge/Node-20%2B-brightgreen) ![Models](https://img.shields.io/badge/Models-OpenAI--compatible-orange)
 
+[Overview](#overview) · [Quick start](#quick-start) · [Workflow](#workflow) · [Architecture](#architecture) · [Project structure](#project-structure) · [Limits](#limits) · [References](#references) · [Contributing](#contributing) · [Change history](#change-history)
+
 <!-- project-control:section=overview -->
 ## Overview
 
@@ -14,7 +16,7 @@ Prospect Copilot is a multilingual chat app for sales research and product sourc
 
 - **Origin:** A standalone TypeScript rewrite of [`zubair-trabzada/ai-sales-team-claude`](https://github.com/zubair-trabzada/ai-sales-team-claude). [Architecture](#architecture) explains Next.js, LangGraph, and LangChain.
 
-## Setup
+## Quick start
 
 Run these commands from `Prospect Copilot/`. Requires Node.js 20 or newer.
 
@@ -45,7 +47,7 @@ LLM_ALLOWED_BASE_URLS="https://api.openai.com/v1,http://127.0.0.1:11434/v1" npm 
 - This prevents the chat endpoint from being used to contact internal services while still allowing an administrator to opt in a local provider.
 
 <!-- project-control:section=workflows -->
-## How it works
+## Workflow
 
 1. Type a message in the chat page. A stateless LangGraph request workflow asks the intent router to
    classify it against six skills: **prospect** (full audit), **research**, **qualify**,
@@ -124,21 +126,6 @@ Retries have one owner per operation:
 - The graph is currently created per request without a server-side checkpointer.
 - This preserves the existing privacy boundary: completed conversations and reports live only in browser IndexedDB.
 - Durable resume, background runs, and human-review interrupts require a separate storage and ownership decision.
-
-### Project layout
-
-| Path | Responsibility |
-| --- | --- |
-| `src/app/` | App Router page, browser icon, and the single `/api/chat` streaming endpoint. |
-| `src/lib/workflow/` | LangGraph graph, shared state, and the prospect, match, standalone, and plain-chat subgraphs. |
-| `src/lib/agent/` | Intent router, prospect orchestrator, and the Zod schemas every structured model call is validated against. |
-| `src/lib/extract/` | Secure fetching (SSRF guard), homepage analysis, contact discovery, and HTML-to-text. |
-| `src/lib/scoring/` | Deterministic BANT, MEDDIC, and composite scoring. No I/O and no model calls. |
-| `src/lib/skills/` | The five subagent definitions, the four standalone skills, and the match pipeline. |
-| `src/lib/storage/` | Browser IndexedDB persistence for conversations and reports. |
-| `Resources/` | Full-size project icon master, kept outside `src/app/` so Next.js does not serve it. |
-
-Business rules live in `scoring/` and `extract/`, never in a prompt: the model supplies evidenced facts and deterministic TypeScript does every calculation.
 
 ### Finding buyers or sellers for a product
 
@@ -235,7 +222,24 @@ Answers use fetched page evidence; no local embedding model or vector database i
 Each row covers one technology or concept within its category and describes that item's
 project-specific role, read from the current source and dependency manifest.
 
-## Privacy and result quality
+## Project structure
+
+| Path | Responsibility |
+| --- | --- |
+| `src/app/` | App Router page, browser icon, and the single `/api/chat` streaming endpoint. |
+| `src/lib/workflow/` | LangGraph graph, shared state, and the prospect, match, standalone, and plain-chat subgraphs. |
+| `src/lib/agent/` | Intent router, prospect orchestrator, and the Zod schemas every structured model call is validated against. |
+| `src/lib/extract/` | Secure fetching (SSRF guard), homepage analysis, contact discovery, and HTML-to-text. |
+| `src/lib/scoring/` | Deterministic BANT, MEDDIC, and composite scoring. No I/O and no model calls. |
+| `src/lib/skills/` | The five subagent definitions, the four standalone skills, and the match pipeline. |
+| `src/lib/storage/` | Browser IndexedDB persistence for conversations and reports. |
+| `Resources/` | Full-size project icon master, kept outside `src/app/` so Next.js does not serve it. |
+
+Business rules live in `scoring/` and `extract/`, never in a prompt: the model supplies evidenced facts and deterministic TypeScript does every calculation.
+
+## Limits
+
+### Privacy and result quality
 
 - Settings (base URL, model, API key): `localStorage` only.
 - Conversations and reports: IndexedDB in the browser. No server-side database exists; the server is
@@ -250,7 +254,9 @@ project-specific role, read from the current source and dependency manifest.
 - **Partial results:** Subagent failures reduce the composite score's confidence instead of
   failing the run; partial data is always marked.
 
-## Design reference
+## References
+
+### Design reference
 
 [Implementation plan](docs/implementation-plan.md) records scope decisions and design references.
 
@@ -271,6 +277,7 @@ One record per change; complete details and evidence are below. Older work dates
 
 | Record | Date | Highlights | Details |
 |---|---|---|---|
+| Documentation | 2026-10-05 | <ul><li><strong>Structure:</strong> Sections follow the order and names every project README now shares, under a contents line; sections were renamed and moved, and no wording was removed.</li></ul> | [Full record](#readme-skeleton) |
 | Documentation | 2026-10-05 | <ul><li><strong>Readability:</strong> Long paragraphs, bullets and table cells are now short leads with sub-points, one fact each; no detail was removed.</li></ul> | [Full record](#readme-structure) |
 | Maintenance | 2026-09-30 | <ul><li><strong>Security:</strong> Cleared a critical Next.js advisory published on 2026-09-30: image generation through `next/og` could run attacker-supplied code.</li><li><strong>Version:</strong> Next.js 16.3.6; no other package moves.</li><li><strong>Exposure:</strong> None found: the app does not use `next/og`.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](#next-og-advisory-cleared) |
 | Maintenance | 2026-09-30 | <ul><li><strong>Security:</strong> Cleared the medium advisory GitHub reported against undici, the HTTP client cheerio depends on: a hostile WebSocket server could crash the Node.js process.</li><li><strong>Version:</strong> undici 7.29.1, within the range cheerio declares; no other package moves.</li><li><strong>Exposure:</strong> None found: the app hands cheerio HTML it fetched itself and never opens a WebSocket.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](#undici-advisory-cleared) |
@@ -299,6 +306,24 @@ One record per change; complete details and evidence are below. Older work dates
 
 <details>
 <summary>Full records for this table</summary>
+
+<a id="readme-skeleton"></a>
+
+### README sections in the shared order — 2026-10-05
+
+- **Why:** project READMEs named and ordered the same kinds of section differently, so setup, workflow and
+  architecture sat in a different place in each.
+- **Order:** the sections now run Overview, Quick start, Workflow, Architecture, Project structure, Limits, References, Contributing, Change history.
+- **Renamed:** Setup is now Quick start, and How it works is Workflow.
+- **Moved:**
+  - Project layout left Workflow to become Project structure, after Architecture.
+  - Privacy and result quality now sits under Limits, and Design reference under References.
+- **Opening:** a contents line under the title links every section.
+- **Unchanged:** every sentence, table, diagram and Project Control marker inside the sections; whole sections
+  moved, and links to a renamed section were updated.
+- **Scope:** Documentation only.
+
+[Back to change history](#change-history)
 
 <a id="readme-structure"></a>
 
