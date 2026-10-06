@@ -2,6 +2,18 @@
 
 Every change to Prospect Copilot, newest first, in one shape: the summary from the history table, then what changed, what was checked and how it was delivered. The README's Change history table lists the newest 10 and links here.
 
+<a id="three-quick-links"></a>
+
+## Three quick links — 2026-10-06
+
+- **Layout:** The line of section links under the title now holds three quick links, Quick start, Architecture and Change history, in place of one for every section; the outline of the whole README is the one GitHub, Obsidian and Project Control provide.
+
+### Changed
+
+- **Why:** the line had grown to as many as fourteen links, drew the eye without saying where each led, and duplicated the outline every reader already has.
+- **Line:** `Quick start · Architecture · Change history`, the same three in every project README: get going, see how it is built, see what changed.
+- **Scope:** Documentation only.
+
 <a id="readme-source-audit"></a>
 
 ## README checked against the source — 2026-10-06
