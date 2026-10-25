@@ -294,15 +294,17 @@ export async function chatCompletion(
  * @param options call settings plus the structured-output operation name
  * @returns the parsed value inferred from the schema
  */
-export async function structuredChatCompletion<Schema extends z.ZodTypeAny>(
+export async function structuredChatCompletion<
+  Output extends Record<string, unknown>,
+>(
   config: LlmConfig,
   messages: LlmMessage[],
-  schema: Schema,
+  schema: z.ZodType<Output>,
   options: StructuredLlmCallOptions = {},
-): Promise<z.infer<Schema>> {
+): Promise<Output> {
   return invokeWithContract(options, async (signal) => {
     const runnable = createModel(config, options).withStructuredOutput<
-      z.infer<Schema>
+      Output
     >(schema, {
       method: "jsonMode",
       name: options.schemaName,

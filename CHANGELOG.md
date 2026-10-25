@@ -2,6 +2,69 @@
 
 Every change to Prospect Copilot, newest first, in one shape: the summary from the history table, then what changed, what was checked and how it was delivered. The README's Change history table lists the newest 10 and links here.
 
+<a id="next-16-4-and-zod-4"></a>
+
+## Next.js 16.4 and Zod 4 advisories cleared — 2026-10-25
+
+- **Security:** Cleared the 20 advisories GitHub reported, two of them critical remote code execution in Next.js, and the four high ones `npm audit` added in undici and Zod.
+- **Versions:** Next.js 16.4.1, sharp 0.35.5, Vitest 4.1.12, Vite 8.3.5, source-map-js 1.2.2, undici 7.30.1 and Zod 4.6.7.
+- **Exposure:** Zod's was reachable, since it validates the chat request body; the app uses no `next/image`, `use cache`, Server Actions, draft mode or static regeneration.
+- **Tests:** 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.
+
+### Changed
+
+- **What was reported:**
+  - GitHub listed 20 open advisories against the lockfile on 2026-10-25.
+  - Next.js 16.3.6 carried ten. Two critical ones allow unauthenticated remote code execution:
+    through the image optimization API when SVG files are used (GHSA-2464-fhr4-w9xw), and through
+    `use cache` functions returning typed arrays (GHSA-673q-mjm6-r5xr).
+  - Its two high ones are server-side request forgery in image optimization (GHSA-cjq9-62q9-8jv4)
+    and a denial of service in the App Router through Server Actions (GHSA-p3m5-59mp-jv5r).
+  - The other six cover cache poisoning and leaks in static and cached pages, metadata image
+    routes, and the development server's Model Context Protocol endpoint.
+  - sharp 0.35.4 carried a high one in its bundled librsvg (GHSA-wq5f-xc86-pv6w), and
+    source-map-js 1.2.1 a high event-loop denial of service (GHSA-68fv-2mgg-jv7q).
+  - Vite 8.3.0 carried six, in its editor launcher on Windows, its `server.fs.allow` check and
+    custom middleware. `@vitest/mocker` 4.1.11 carried two medium ones (GHSA-xp26-3454-mjgp,
+    GHSA-qxg6-89mg-rqv8).
+- **Found by `npm audit`:**
+  - undici 7.29.1 carried three high ones: unbounded memory in its EventSource parser, a
+    Subresource Integrity bypass, and a crash on excessive content encodings
+    (GHSA-4qv8-2p9j-2685, GHSA-f72v-6w45-q472, GHSA-xjj6-f33q-929c).
+  - Zod 3.25.76 carried a high one: it can exhaust memory while validating an oversized
+    collection that has a size limit (GHSA-mrhx-c7xc-m3w5). No Zod 3 release fixes it.
+- **Fix:**
+  - The manifest asks for `next` ^16.4.1, `vitest` and `@vitest/coverage-v8` ^4.1.12, and `zod`
+    ^4.6.7, and the lockfile pins them.
+  - sharp 0.35.5 with libvips 1.3.4, source-map-js 1.2.2, Vite 8.3.5 and undici 7.30.1 are
+    transitive and resolve within the ranges their parents declare.
+  - 72 locked versions move in all, most of them platform packages of Next.js, sharp and Vite's
+    bundler; none is added or removed.
+  - As before, the lockfile was changed with npm 11, and `npm ci` with npm 10 installs it.
+- **Zod 4:**
+  - The schemas are unchanged: every default already matches its output type, and every record
+    names its key type.
+  - `structuredChatCompletion` is now typed by its schema's output, `z.ZodType<Output>`, instead
+    of `z.ZodTypeAny`, whose output Zod 4 no longer lets LangChain's structured output accept.
+  - An invalid chat request still gets a 400 with the same issue codes and paths; its messages now
+    use Zod 4's wording, such as "Too small: expected string to have >=1 characters".
+- **Next.js 16.4:** `next dev` and `next build` now look up security advisories and offer an
+  upgrade when one applies; the running app is unaffected.
+- **Unchanged:** `agentRules: false`, application behavior, model requests, browser storage, and
+  external access.
+
+### Checked
+
+- **Evidence:**
+  - `npm audit` reports no vulnerabilities, and `npm ls` shows each patched version.
+  - The type check, the 448 unit tests, the coverage gate, the production build, and the 57
+    end-to-end runs across Chromium, Firefox, and WebKit pass.
+  - Reinstalling restored `node_modules/next/AGENTS.md`; it was removed again.
+
+### Delivered
+
+- **Status:** committed together with this record on 2026-10-25. Not deployed.
+
 <a id="history-strip"></a>
 
 ## History strip — 2026-10-06

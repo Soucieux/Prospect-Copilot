@@ -290,7 +290,7 @@ For source changes, follow the [Prospect Copilot contribution guide](CONTRIBUTIN
 <!-- project-control:section=history -->
 ## Change history
 
-![Changelog history, Aug – Oct 2026: 32 entries; busiest September 2026 (17); no releases yet.](CHANGELOG.svg)
+![Changelog history, Aug – Oct 2026: 33 entries; busiest September 2026 (17); no releases yet.](CHANGELOG.svg)
 
 **Change-history numbering:** This project uses dated history and does not assign project-level
 version or build numbers. Follow the [version and build policy](CONTRIBUTING.md#version-and-build-policy).
@@ -301,6 +301,7 @@ One record per change; complete details and evidence are in [CHANGELOG.md](CHANG
 
 | Record | Date | Highlights | Details |
 |---|---|---|---|
+| Maintenance | 2026-10-25 | <ul><li><strong>Security:</strong> Cleared the 20 advisories GitHub reported, two of them critical remote code execution in Next.js, and the four high ones <code>npm audit</code> added in undici and Zod.</li><li><strong>Versions:</strong> Next.js 16.4.1, sharp 0.35.5, Vitest 4.1.12, Vite 8.3.5, source-map-js 1.2.2, undici 7.30.1 and Zod 4.6.7.</li><li><strong>Exposure:</strong> Zod's was reachable, since it validates the chat request body; the app uses no <code>next/image</code>, <code>use cache</code>, Server Actions, draft mode or static regeneration.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](CHANGELOG.md#next-16-4-and-zod-4) |
 | Documentation | 2026-10-06 | <ul><li><strong>Changelog:</strong> The README's Change history opens with a history strip, <code>CHANGELOG.svg</code>, drawn from the changelog: the entries of every period as shaded cells, release months marked, and the span, total and version range beside them.</li></ul> | [Full record](CHANGELOG.md#history-strip) |
 | Documentation | 2026-10-06 | <ul><li><strong>Layout:</strong> The line of section links under the title now holds three quick links, Quick start, Architecture and Change history, in place of one for every section; the outline of the whole README is the one GitHub, Obsidian and Project Control provide.</li></ul> | [Full record](CHANGELOG.md#three-quick-links) |
 | Documentation | 2026-10-06 | <ul><li><strong>Audit:</strong> The test tooling gained a Build & Delivery table and its commands in Quick start, and the structure table lists <code>e2e/</code>, <code>docs/</code>, the contributor guide and the changelog.</li></ul> | [Full record](CHANGELOG.md#readme-source-audit) |
@@ -310,7 +311,6 @@ One record per change; complete details and evidence are in [CHANGELOG.md](CHANG
 | Documentation | 2026-10-05 | <ul><li><strong>Structure:</strong> Sections follow the order and names every project README now shares, under a contents line; sections were renamed and moved, and no wording was removed.</li></ul> | [Full record](CHANGELOG.md#readme-skeleton) |
 | Documentation | 2026-10-05 | <ul><li><strong>Readability:</strong> Long paragraphs, bullets and table cells are now short leads with sub-points, one fact each; no detail was removed.</li></ul> | [Full record](CHANGELOG.md#readme-structure) |
 | Maintenance | 2026-09-30 | <ul><li><strong>Security:</strong> Cleared a critical Next.js advisory published on 2026-09-30: image generation through `next/og` could run attacker-supplied code.</li><li><strong>Version:</strong> Next.js 16.3.6; no other package moves.</li><li><strong>Exposure:</strong> None found: the app does not use `next/og`.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](CHANGELOG.md#next-og-advisory-cleared) |
-| Maintenance | 2026-09-30 | <ul><li><strong>Security:</strong> Cleared the medium advisory GitHub reported against undici, the HTTP client cheerio depends on: a hostile WebSocket server could crash the Node.js process.</li><li><strong>Version:</strong> undici 7.29.1, within the range cheerio declares; no other package moves.</li><li><strong>Exposure:</strong> None found: the app hands cheerio HTML it fetched itself and never opens a WebSocket.</li><li><strong>Tests:</strong> 448 unit tests, the coverage gate, the type check, the production build, and 57 end-to-end runs pass.</li></ul> | [Full record](CHANGELOG.md#undici-advisory-cleared) |
 ---
 
 <!-- project-control:section=ignore -->
